@@ -90,7 +90,7 @@ func (r *Reporter) sendHeartbeat(ctx context.Context) {
 	payload := heartbeatPayload{
 		MachineID:  r.machineID,
 		Role:       r.role,
-		IP:         detectOutboundIP(),
+		IP:         detectPublicIP(),
 		CPUPercent: firstCPUPercent(cpuPercent),
 		MemPercent: memStats.UsedPercent,
 	}
@@ -98,6 +98,25 @@ func (r *Reporter) sendHeartbeat(ctx context.Context) {
 	if err := r.postJSON(ctx, "/api/agent/heartbeat", payload); err != nil {
 		log.Printf("[WARN] reporter heartbeat post failed: %v", err)
 	}
+}
+
+func detectPublicIP() string {
+	client := http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Get("https://api.ipify.org")
+	if err == nil {
+		defer resp.Body.Close()
+		if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
+			body, readErr := io.ReadAll(io.LimitReader(resp.Body, 128))
+			if readErr == nil {
+				ip := strings.TrimSpace(string(body))
+				if net.ParseIP(ip) != nil {
+					return ip
+				}
+			}
+		}
+	}
+
+	return detectOutboundIP()
 }
 
 func detectOutboundIP() string {

@@ -25,6 +25,7 @@ type statsRequest struct {
 type registerRequest struct {
 	Name string `json:"name"`
 	Role string `json:"role"`
+	IP   string `json:"ip"`
 	OS   string `json:"os"`
 }
 
@@ -121,11 +122,16 @@ func (h *Handler) AgentRegister(c *gin.Context) {
 		return
 	}
 
+	ip := strings.TrimSpace(req.IP)
+	if ip == "" {
+		ip = ClientIP(c)
+	}
+
 	machine, psk, err := h.Machines.RegisterMachine(token, service.RegisterMachineInput{
 		Name: req.Name,
 		Role: req.Role,
 		OS:   req.OS,
-	}, ClientIP(c))
+	}, ip)
 	if err != nil {
 		status := http.StatusBadRequest
 		switch {

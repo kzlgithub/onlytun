@@ -152,7 +152,7 @@ prepare_dirs() {
 download_agent() {
   local url="https://github.com/kzlgithub/onlytun/releases/latest/download/onlytun-agent-linux-${ARCH}"
   info "开始下载 Agent 二进制: ${url}"
-  curl -fL# "$url" -o "$AGENT_BIN" || fail "下载 Agent 二进制失败，请检查网络或 Release 是否存在"
+  curl --retry 3 --retry-delay 2 -fL# "$url" -o "$AGENT_BIN" || fail "下载 Agent 二进制失败，请检查网络或 Release 是否存在"
   chmod +x "$AGENT_BIN" || fail "设置 Agent 执行权限失败"
   success "Agent 二进制已安装到 ${AGENT_BIN}"
 }

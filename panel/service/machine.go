@@ -20,6 +20,7 @@ var (
 	ErrInstallTokenUsed     = errors.New("service: install token already used")
 	ErrMachineNotFound      = errors.New("service: machine not found")
 	ErrMachineHasRules      = errors.New("service: machine has enabled rules")
+	ErrMachineNameRequired  = errors.New("service: machine name is required")
 	ErrInvalidRole          = errors.New("service: invalid role")
 )
 
@@ -124,6 +125,9 @@ func (s *MachineService) RegisterMachine(token string, input RegisterMachineInpu
 
 	name := strings.TrimSpace(input.Name)
 	if name == "" {
+		name = strings.TrimSpace(ip)
+	}
+	if name == "" {
 		name = fmt.Sprintf("%s-%d", role, time.Now().Unix())
 	}
 
@@ -176,6 +180,27 @@ func (s *MachineService) RegisterMachine(token string, input RegisterMachineInpu
 		return nil, "", err
 	}
 	return machine, sharedPSK, nil
+}
+
+func (s *MachineService) UpdateMachineName(id, name string) (*paneldb.Machine, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, ErrMachineNameRequired
+	}
+
+	var machine paneldb.Machine
+	if err := s.db.Take(&machine, "id = ?", id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrMachineNotFound
+		}
+		return nil, err
+	}
+
+	if err := s.db.Model(&machine).Update("name", name).Error; err != nil {
+		return nil, err
+	}
+	machine.Name = name
+	return &machine, nil
 }
 
 func (s *MachineService) AuthenticateMachineToken(token string) (*paneldb.Machine, error) {
@@ -239,8 +264,13 @@ func (s *MachineService) BuildInstallScripts(baseURL string) (*InstallScriptPayl
 }
 
 func buildInstallCommand(baseURL, role, token string, tunnelPort int) string {
+	_ = tunnelPort
+	escapedBaseURL := shellQuote(baseURL)
 	escapedToken := shellQuote(token)
-	return fmt.Sprintf(`bash <(curl -fsSL https://raw.githubusercontent.com/kzlgithub/onlytun/main/scripts/install.sh) --token %s`, escapedToken)
+	return fmt.Sprintf(`bash <(curl -fsSL https://raw.githubusercontent.com/kzlgithub/onlytun/main/scripts/install.sh) \
+  --token %s \
+  --role %s \
+  --panel %s`, escapedToken, role, escapedBaseURL)
 }
 
 func shellQuote(value string) string {

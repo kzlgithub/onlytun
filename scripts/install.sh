@@ -22,11 +22,9 @@ RELEASE_BASE_URL="${ONLYTUN_RELEASE_BASE_URL:-https://github.com/kzlgithub/onlyt
 usage() {
   cat <<EOF
 Usage:
-  bash install.sh --token INSTALL_TOKEN
+  bash install.sh --token INSTALL_TOKEN --role ingress|egress --panel http://host:port
 
 Optional non-interactive flags:
-  --role ingress|egress
-  --panel http://host:port
   --name MACHINE_NAME
 EOF
 }
@@ -117,16 +115,6 @@ prompt_if_missing() {
   fi
   PANEL_URL="${PANEL_URL%/}"
 
-  if [ -z "$MACHINE_NAME" ]; then
-    local default_name
-    default_name="$(hostname 2>/dev/null || true)"
-    [ -n "$default_name" ] || default_name="onlytun-${ROLE}"
-    if [ -t 0 ]; then
-      printf "Machine name [%s]: " "$default_name"
-      read -r MACHINE_NAME
-    fi
-    [ -n "$MACHINE_NAME" ] || MACHINE_NAME="$default_name"
-  fi
 }
 
 detect_os() {
@@ -191,6 +179,7 @@ download_agent() {
 fetch_public_ip() {
   PUBLIC_IP="$(curl -fsS https://api.ipify.org)" || fail "Failed to detect public IP."
   [ -n "$PUBLIC_IP" ] || fail "Public IP is empty."
+  [ -n "$MACHINE_NAME" ] || MACHINE_NAME="$PUBLIC_IP"
   success "Public IP: ${PUBLIC_IP}"
 }
 

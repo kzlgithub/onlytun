@@ -10,6 +10,10 @@ import (
 	"github.com/onlytun/panel/service"
 )
 
+type updateMachineRequest struct {
+	Name string `json:"name"`
+}
+
 func (h *Handler) ListMachines(c *gin.Context) {
 	items, err := h.Machines.ListMachines()
 	if err != nil {
@@ -29,6 +33,28 @@ func (h *Handler) GenerateMachineToken(c *gin.Context) {
 		"token":      record.Token,
 		"expires_at": record.ExpiresAt,
 	})
+}
+
+func (h *Handler) UpdateMachine(c *gin.Context) {
+	var req updateMachineRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	machine, err := h.Machines.UpdateMachineName(c.Param("id"), req.Name)
+	if err != nil {
+		status := http.StatusInternalServerError
+		switch {
+		case errors.Is(err, service.ErrMachineNameRequired):
+			status = http.StatusBadRequest
+		case errors.Is(err, service.ErrMachineNotFound):
+			status = http.StatusNotFound
+		}
+		c.JSON(status, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"machine": machine})
 }
 
 func (h *Handler) DeleteMachine(c *gin.Context) {

@@ -30,6 +30,7 @@ const (
 
 // Note: go:embed cannot reference ../web/dist directly.
 // The release/build flow syncs root web/dist into panel/web/dist before compiling.
+//
 //go:embed all:web/dist
 var webFS embed.FS
 
@@ -65,6 +66,7 @@ func main() {
 	admin.Use(handler.RequireAdminJWT())
 	admin.GET("/machines", handler.ListMachines)
 	admin.POST("/machines/generate-token", handler.GenerateMachineToken)
+	admin.PATCH("/machines/:id", handler.UpdateMachine)
 	admin.DELETE("/machines/:id", handler.DeleteMachine)
 	admin.GET("/machines/install-script", handler.GetInstallScript)
 	admin.GET("/rules", handler.ListRules)

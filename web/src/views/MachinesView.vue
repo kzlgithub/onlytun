@@ -61,8 +61,9 @@
           </template>
         </el-table-column>
         <el-table-column prop="rule_count" label="关联规则数" width="120" />
-        <el-table-column label="操作" width="110" fixed="right">
+        <el-table-column label="操作" width="150" fixed="right">
           <template #default="{ row }">
+            <el-button type="primary" link @click="handleRename(row)">改名</el-button>
             <el-button type="danger" link @click="handleDelete(row)">删除</el-button>
           </template>
         </el-table-column>
@@ -89,6 +90,19 @@ async function loadData() {
   } finally {
     loading.value = false;
   }
+}
+
+async function handleRename(machine) {
+  const { value } = await ElMessageBox.prompt('请输入新的机器名称', '修改名称', {
+    confirmButtonText: '保存',
+    cancelButtonText: '取消',
+    inputValue: machine.name,
+    inputValidator: (value) => Boolean(value && value.trim()),
+    inputErrorMessage: '机器名称不能为空',
+  });
+
+  await machineStore.updateMachine(machine.id, { name: value.trim() });
+  ElMessage.success('名称已更新');
 }
 
 async function handleDelete(machine) {

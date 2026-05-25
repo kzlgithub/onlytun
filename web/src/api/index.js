@@ -54,6 +54,9 @@ export const machineApi = {
   generateToken() {
     return api.post('/api/machines/generate-token');
   },
+  update(id, payload) {
+    return api.patch(`/api/machines/${id}`, payload);
+  },
   remove(id) {
     return api.delete(`/api/machines/${id}`);
   },

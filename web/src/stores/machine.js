@@ -50,6 +50,14 @@ export const useMachineStore = defineStore('machines', {
         this.commandLoading = false;
       }
     },
+    async updateMachine(id, payload) {
+      const { data } = await machineApi.update(id, payload);
+      const updated = data.machine;
+      if (updated) {
+        this.machines = this.machines.map((item) => (item.id === id ? { ...item, ...updated } : item));
+      }
+      return updated;
+    },
     async deleteMachine(id) {
       await machineApi.remove(id);
       this.machines = this.machines.filter((item) => item.id !== id);

@@ -118,7 +118,7 @@ detect_arch() {
 }
 
 download_panel() {
-  local url="https://github.com/onlytun/onlytun/releases/latest/download/onlytun-panel-linux-${ARCH}"
+  local url="https://github.com/kzlgithub/onlytun/releases/latest/download/onlytun-panel-linux-${ARCH}"
   info "开始下载面板二进制: ${url}"
   curl -fL# "$url" -o "$PANEL_BIN" || fail "下载面板二进制失败，请检查网络或 Release 是否存在"
   chmod +x "$PANEL_BIN" || fail "设置面板执行权限失败"

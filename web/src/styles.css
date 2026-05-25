@@ -1,0 +1,165 @@
+:root {
+  color-scheme: light;
+  font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  background:
+    radial-gradient(circle at top left, rgba(64, 158, 255, 0.18), transparent 28%),
+    linear-gradient(135deg, #f3f7fd 0%, #f8fafc 45%, #eef4ff 100%);
+  color: #162033;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  min-height: 100vh;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.page-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.page-title {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 700;
+  color: #132238;
+}
+
+.page-subtitle {
+  margin: 6px 0 0;
+  font-size: 14px;
+  color: #72829d;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.panel-card {
+  border-radius: 22px;
+  border: 1px solid rgba(64, 158, 255, 0.12);
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 18px 40px rgba(19, 34, 56, 0.08);
+}
+
+.status-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-right: 8px;
+}
+
+.status-dot.online {
+  background: #67c23a;
+  box-shadow: 0 0 0 6px rgba(103, 194, 58, 0.15);
+}
+
+.status-dot.offline {
+  background: #f56c6c;
+  box-shadow: 0 0 0 6px rgba(245, 108, 108, 0.15);
+}
+
+.code-block {
+  position: relative;
+  border-radius: 18px;
+  background: #132238;
+  color: #eff6ff;
+  padding: 18px 20px;
+  font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.7;
+  overflow-x: auto;
+}
+
+.code-block pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.two-column {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+
+.chart-shell {
+  height: 420px;
+  width: 100%;
+}
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.summary-box {
+  padding: 22px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, rgba(64, 158, 255, 0.12), rgba(103, 194, 58, 0.12));
+}
+
+.summary-label {
+  margin: 0 0 12px;
+  color: #72829d;
+  font-size: 13px;
+}
+
+.summary-value {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 700;
+  color: #132238;
+}
+
+.muted {
+  color: #72829d;
+}
+
+@media (max-width: 1200px) {
+  .stat-grid,
+  .summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .two-column,
+  .stat-grid,
+  .summary-grid {
+    grid-template-columns: 1fr;
+  }
+}

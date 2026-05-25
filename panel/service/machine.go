@@ -1,0 +1,302 @@
+package service
+
+import (
+	"errors"
+	"fmt"
+	"net"
+	"net/url"
+	"strings"
+	"time"
+
+	paneldb "github.com/onlytun/panel/db"
+	"gorm.io/gorm"
+)
+
+const installTokenTTL = 24 * time.Hour
+
+var (
+	ErrInstallTokenNotFound = errors.New("service: install token not found")
+	ErrInstallTokenExpired  = errors.New("service: install token expired")
+	ErrInstallTokenUsed     = errors.New("service: install token already used")
+	ErrMachineNotFound      = errors.New("service: machine not found")
+	ErrMachineHasRules      = errors.New("service: machine has enabled rules")
+	ErrInvalidRole          = errors.New("service: invalid role")
+)
+
+type MachineService struct {
+	db         *gorm.DB
+	tunnelPort int
+}
+
+type MachineListItem struct {
+	paneldb.Machine
+	RuleCount int64 `json:"rule_count"`
+}
+
+type RegisterMachineInput struct {
+	Name string
+	Role string
+	OS   string
+}
+
+type AgentRuleConfig struct {
+	RuleID     string `json:"rule_id"`
+	ListenAddr string `json:"listen_addr"`
+	Protocol   string `json:"protocol"`
+	EgressAddr string `json:"egress_addr"`
+	TargetAddr string `json:"target_addr"`
+}
+
+type InstallScriptPayload struct {
+	IngressCommand string `json:"ingress_command"`
+	EgressCommand  string `json:"egress_command"`
+}
+
+func NewMachineService(gdb *gorm.DB, tunnelPort int) *MachineService {
+	return &MachineService{db: gdb, tunnelPort: tunnelPort}
+}
+
+func (s *MachineService) ListMachines() ([]MachineListItem, error) {
+	var machines []paneldb.Machine
+	if err := s.db.Order("created_at DESC").Find(&machines).Error; err != nil {
+		return nil, err
+	}
+
+	items := make([]MachineListItem, 0, len(machines))
+	for _, machine := range machines {
+		var ruleCount int64
+		if err := s.db.Model(&paneldb.ForwardRule{}).
+			Where("ingress_machine_id = ? OR egress_machine_id = ?", machine.ID, machine.ID).
+			Count(&ruleCount).Error; err != nil {
+			return nil, err
+		}
+		items = append(items, MachineListItem{
+			Machine:   machine,
+			RuleCount: ruleCount,
+		})
+	}
+
+	return items, nil
+}
+
+func (s *MachineService) GenerateInstallToken() (*paneldb.InstallToken, error) {
+	token, err := paneldb.GenerateHexSecret(24)
+	if err != nil {
+		return nil, err
+	}
+
+	record := &paneldb.InstallToken{
+		Token:     token,
+		ExpiresAt: time.Now().Add(installTokenTTL),
+	}
+	if err := s.db.Create(record).Error; err != nil {
+		return nil, err
+	}
+	return record, nil
+}
+
+func (s *MachineService) DeleteMachine(id string) error {
+	var enabledCount int64
+	if err := s.db.Model(&paneldb.ForwardRule{}).
+		Where("(ingress_machine_id = ? OR egress_machine_id = ?) AND enabled = ?", id, id, true).
+		Count(&enabledCount).Error; err != nil {
+		return err
+	}
+	if enabledCount > 0 {
+		return ErrMachineHasRules
+	}
+
+	result := s.db.Delete(&paneldb.Machine{}, "id = ?", id)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return ErrMachineNotFound
+	}
+	return nil
+}
+
+func (s *MachineService) RegisterMachine(token string, input RegisterMachineInput, ip string) (*paneldb.Machine, string, error) {
+	role := strings.ToLower(strings.TrimSpace(input.Role))
+	if role != "ingress" && role != "egress" {
+		return nil, "", ErrInvalidRole
+	}
+
+	name := strings.TrimSpace(input.Name)
+	if name == "" {
+		name = fmt.Sprintf("%s-%d", role, time.Now().Unix())
+	}
+
+	var machine *paneldb.Machine
+	var sharedPSK string
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		var installToken paneldb.InstallToken
+		if err := tx.Take(&installToken, "token = ?", token).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrInstallTokenNotFound
+			}
+			return err
+		}
+		if installToken.Used {
+			return ErrInstallTokenUsed
+		}
+		if time.Now().After(installToken.ExpiresAt) {
+			return ErrInstallTokenExpired
+		}
+
+		psk, err := getOrCreateSharedPSK(tx)
+		if err != nil {
+			return err
+		}
+		sharedPSK = psk
+
+		record := &paneldb.Machine{
+			Name:          name,
+			Role:          role,
+			IP:            strings.TrimSpace(ip),
+			Token:         token,
+			Online:        true,
+			OS:            strings.TrimSpace(input.OS),
+			LastHeartbeat: time.Now(),
+		}
+		if err := tx.Create(record).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&installToken).Updates(map[string]any{
+			"used":       true,
+			"updated_at": time.Now(),
+		}).Error; err != nil {
+			return err
+		}
+
+		machine = record
+		return nil
+	})
+	if err != nil {
+		return nil, "", err
+	}
+	return machine, sharedPSK, nil
+}
+
+func (s *MachineService) AuthenticateMachineToken(token string) (*paneldb.Machine, error) {
+	var machine paneldb.Machine
+	if err := s.db.Take(&machine, "token = ?", token).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrMachineNotFound
+		}
+		return nil, err
+	}
+	return &machine, nil
+}
+
+func (s *MachineService) UpdateHeartbeat(machine *paneldb.Machine, role, ip string, cpuPercent, memPercent float64) error {
+	if machine == nil {
+		return ErrMachineNotFound
+	}
+
+	role = strings.ToLower(strings.TrimSpace(role))
+	if role != "" && role != machine.Role {
+		return ErrInvalidRole
+	}
+
+	updateIP := strings.TrimSpace(ip)
+	if updateIP == "" {
+		updateIP = machine.IP
+	}
+
+	return s.db.Model(&paneldb.Machine{}).
+		Where("id = ?", machine.ID).
+		Updates(map[string]any{
+			"ip":             updateIP,
+			"online":         true,
+			"cpu_percent":    cpuPercent,
+			"mem_percent":    memPercent,
+			"last_heartbeat": time.Now(),
+		}).Error
+}
+
+func (s *MachineService) MarkOfflineBefore(cutoff time.Time) error {
+	return s.db.Model(&paneldb.Machine{}).
+		Where("online = ? AND last_heartbeat < ?", true, cutoff).
+		Update("online", false).Error
+}
+
+func (s *MachineService) BuildInstallScripts(baseURL string) (*InstallScriptPayload, error) {
+	ingressToken, err := s.GenerateInstallToken()
+	if err != nil {
+		return nil, err
+	}
+	egressToken, err := s.GenerateInstallToken()
+	if err != nil {
+		return nil, err
+	}
+
+	baseURL = strings.TrimRight(baseURL, "/")
+	return &InstallScriptPayload{
+		IngressCommand: buildInstallCommand(baseURL, "ingress", ingressToken.Token, s.tunnelPort),
+		EgressCommand:  buildInstallCommand(baseURL, "egress", egressToken.Token, s.tunnelPort),
+	}, nil
+}
+
+func buildInstallCommand(baseURL, role, token string, tunnelPort int) string {
+	escapedBase := shellQuote(baseURL)
+	escapedToken := shellQuote(token)
+	return fmt.Sprintf(
+		`PANEL_URL=%s && INSTALL_TOKEN=%s && REGISTER_JSON=$(curl -fsSL -X POST "$PANEL_URL/api/agent/register" -H "Authorization: Bearer $INSTALL_TOKEN" -H "Content-Type: application/json" -d "{\"name\":\"$(hostname)\",\"role\":%q,\"os\":\"$(uname -s)\"}") && MACHINE_ID=$(printf '%%s' "$REGISTER_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['machine_id'])") && PSK=$(printf '%%s' "$REGISTER_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['psk'])") && mkdir -p /etc/onlytun && cat >/etc/onlytun/cache.json <<EOF
+{
+  "machine_id": "$MACHINE_ID",
+  "role": %q,
+  "psk": "$PSK",
+  "panel_url": "$PANEL_URL",
+  "token": "$INSTALL_TOKEN",
+  "tunnel_listen_addr": "0.0.0.0:%d",
+  "rules": []
+}
+EOF`,
+		escapedBase,
+		escapedToken,
+		shellQuote(role),
+		shellQuote(role),
+		tunnelPort,
+	)
+}
+
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
+}
+
+func requestBaseURL(raw string) string {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	return strings.TrimRight(parsed.String(), "/")
+}
+
+func getOrCreateSharedPSK(tx *gorm.DB) (string, error) {
+	var setting paneldb.SystemSetting
+	err := tx.Take(&setting, "key = ?", paneldb.SharedPSKSettingKey).Error
+	if err == nil {
+		return setting.Value, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return "", err
+	}
+
+	psk, err := paneldb.GenerateHexSecret(32)
+	if err != nil {
+		return "", err
+	}
+	record := &paneldb.SystemSetting{
+		Key:   paneldb.SharedPSKSettingKey,
+		Value: psk,
+	}
+	if err := tx.Create(record).Error; err != nil {
+		return "", err
+	}
+	return psk, nil
+}
+
+func JoinHostPort(host string, port int) string {
+	return net.JoinHostPort(host, fmt.Sprintf("%d", port))
+}

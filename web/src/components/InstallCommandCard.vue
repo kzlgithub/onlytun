@@ -42,8 +42,38 @@ async function handleCopy() {
     return;
   }
 
-  await navigator.clipboard.writeText(props.command);
-  ElMessage.success('安装命令已复制');
+  try {
+    await copyText(props.command);
+    ElMessage.success('安装命令已复制');
+  } catch (error) {
+    ElMessage.error('复制失败，请手动选中命令复制');
+  }
+}
+
+async function copyText(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('readonly', '');
+  textarea.style.position = 'fixed';
+  textarea.style.top = '-9999px';
+  textarea.style.left = '-9999px';
+  document.body.appendChild(textarea);
+  textarea.select();
+  textarea.setSelectionRange(0, textarea.value.length);
+
+  try {
+    const ok = document.execCommand('copy');
+    if (!ok) {
+      throw new Error('copy command failed');
+    }
+  } finally {
+    document.body.removeChild(textarea);
+  }
 }
 </script>
 

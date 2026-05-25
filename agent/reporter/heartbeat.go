@@ -102,17 +102,33 @@ func (r *Reporter) sendHeartbeat(ctx context.Context) {
 
 func detectPublicIP() string {
 	client := http.Client{Timeout: 3 * time.Second}
-	resp, err := client.Get("https://api.ipify.org")
-	if err == nil {
-		defer resp.Body.Close()
-		if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
-			body, readErr := io.ReadAll(io.LimitReader(resp.Body, 128))
-			if readErr == nil {
-				ip := strings.TrimSpace(string(body))
-				if net.ParseIP(ip) != nil {
-					return ip
+	services := []string{
+		"https://api.ipify.org",
+		"https://ifconfig.me/ip",
+		"https://icanhazip.com",
+		"https://ident.me",
+	}
+
+	for _, service := range services {
+		resp, err := client.Get(service)
+		if err != nil {
+			continue
+		}
+		candidate := func() string {
+			defer resp.Body.Close()
+			if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
+				body, readErr := io.ReadAll(io.LimitReader(resp.Body, 128))
+				if readErr == nil {
+					ip := strings.TrimSpace(string(body))
+					if net.ParseIP(ip) != nil {
+						return ip
+					}
 				}
 			}
+			return ""
+		}()
+		if candidate != "" {
+			return candidate
 		}
 	}
 

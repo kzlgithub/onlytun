@@ -177,7 +177,14 @@ download_agent() {
 }
 
 fetch_public_ip() {
-  PUBLIC_IP="$(curl -fsS https://api.ipify.org)" || fail "Failed to detect public IP."
+  PUBLIC_IP=""
+  for ip_service in https://api.ipify.org https://ifconfig.me/ip https://icanhazip.com https://ident.me; do
+    PUBLIC_IP="$(curl -fsS --max-time 5 "$ip_service" 2>/dev/null || true)"
+    PUBLIC_IP="$(printf '%s' "$PUBLIC_IP" | tr -d '[:space:]')"
+    if [ -n "$PUBLIC_IP" ]; then
+      break
+    fi
+  done
   [ -n "$PUBLIC_IP" ] || fail "Public IP is empty."
   [ -n "$MACHINE_NAME" ] || MACHINE_NAME="$PUBLIC_IP"
   success "Public IP: ${PUBLIC_IP}"

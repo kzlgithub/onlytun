@@ -17,10 +17,17 @@ CONFIG_DIR="/etc/onlytun"
 CONFIG_PATH="${CONFIG_DIR}/cache.json"
 SERVICE_PATH="/etc/systemd/system/onlytun-agent.service"
 DEFAULT_TUNNEL_ADDR="0.0.0.0:19999"
+RELEASE_BASE_URL="${ONLYTUN_RELEASE_BASE_URL:-https://github.com/kzlgithub/onlytun/releases/latest/download}"
 
 usage() {
   cat <<EOF
-Usage: bash scripts/install.sh --role ingress|egress --panel http://host:port --token INSTALL_TOKEN [--name MACHINE_NAME]
+Usage:
+  bash install.sh --token INSTALL_TOKEN
+
+Optional non-interactive flags:
+  --role ingress|egress
+  --panel http://host:port
+  --name MACHINE_NAME
 EOF
 }
 
@@ -43,12 +50,12 @@ fail() {
 
 require_root() {
   if [ "${EUID:-$(id -u)}" -ne 0 ]; then
-    fail "请使用 root 权限运行此脚本。"
+    fail "Please run this script as root."
   fi
 }
 
 require_command() {
-  command -v "$1" >/dev/null 2>&1 || fail "缺少依赖命令: $1"
+  command -v "$1" >/dev/null 2>&1 || fail "Missing required command: $1"
 }
 
 parse_args() {
@@ -75,31 +82,55 @@ parse_args() {
         exit 0
         ;;
       *)
-        fail "未知参数: $1"
+        fail "Unknown argument: $1"
         ;;
     esac
   done
 
-  [ -n "$ROLE" ] || fail "--role 为必填参数"
-  [ -n "$PANEL_URL" ] || fail "--panel 为必填参数"
-  [ -n "$INSTALL_TOKEN" ] || fail "--token 为必填参数"
+  [ -n "$INSTALL_TOKEN" ] || fail "--token is required."
+}
+
+prompt_if_missing() {
+  if [ -z "$ROLE" ]; then
+    [ -t 0 ] || fail "--role is required in non-interactive mode."
+    while true; do
+      printf "Select machine role [ingress/egress]: "
+      read -r ROLE
+      case "$ROLE" in
+        ingress|egress) break ;;
+        *) warn "Please enter ingress or egress." ;;
+      esac
+    done
+  fi
 
   case "$ROLE" in
     ingress|egress) ;;
-    *)
-      fail "--role 仅支持 ingress 或 egress"
-      ;;
+    *) fail "--role only supports ingress or egress." ;;
   esac
 
-  PANEL_URL="${PANEL_URL%/}"
-  if [ -z "$MACHINE_NAME" ]; then
-    MACHINE_NAME="$(hostname 2>/dev/null || true)"
+  if [ -z "$PANEL_URL" ]; then
+    [ -t 0 ] || fail "--panel is required in non-interactive mode."
+    while [ -z "$PANEL_URL" ]; do
+      printf "Panel URL, for example http://1.2.3.4:8080: "
+      read -r PANEL_URL
+    done
   fi
-  [ -n "$MACHINE_NAME" ] || MACHINE_NAME="onlytun-${ROLE}"
+  PANEL_URL="${PANEL_URL%/}"
+
+  if [ -z "$MACHINE_NAME" ]; then
+    local default_name
+    default_name="$(hostname 2>/dev/null || true)"
+    [ -n "$default_name" ] || default_name="onlytun-${ROLE}"
+    if [ -t 0 ]; then
+      printf "Machine name [%s]: " "$default_name"
+      read -r MACHINE_NAME
+    fi
+    [ -n "$MACHINE_NAME" ] || MACHINE_NAME="$default_name"
+  fi
 }
 
 detect_os() {
-  [ -f /etc/os-release ] || fail "无法识别当前操作系统：缺少 /etc/os-release"
+  [ -f /etc/os-release ] || fail "Cannot detect OS: /etc/os-release is missing."
   # shellcheck disable=SC1091
   . /etc/os-release
 
@@ -109,23 +140,23 @@ detect_os() {
 
   case "$os_id" in
     ubuntu)
-      [ "${major:-0}" -ge 18 ] || fail "仅支持 Ubuntu 18.04 及以上版本"
+      [ "${major:-0}" -ge 18 ] || fail "Ubuntu 18.04+ is required."
       ;;
     debian)
-      [ "${major:-0}" -ge 10 ] || fail "仅支持 Debian 10 及以上版本"
+      [ "${major:-0}" -ge 10 ] || fail "Debian 10+ is required."
       ;;
     centos)
-      [ "${major:-0}" -ge 7 ] || fail "仅支持 CentOS 7 及以上版本"
+      [ "${major:-0}" -ge 7 ] || fail "CentOS 7+ is required."
       ;;
     rocky)
-      [ "${major:-0}" -ge 8 ] || fail "仅支持 Rocky Linux 8 及以上版本"
+      [ "${major:-0}" -ge 8 ] || fail "Rocky Linux 8+ is required."
       ;;
     *)
-      fail "当前系统 ${os_id:-unknown} 暂不受支持"
+      fail "Unsupported OS: ${os_id:-unknown}"
       ;;
   esac
 
-  success "操作系统检测通过: ${PRETTY_NAME:-$os_id}"
+  success "OS check passed: ${PRETTY_NAME:-$os_id}"
 }
 
 detect_arch() {
@@ -137,30 +168,30 @@ detect_arch() {
       ARCH="arm64"
       ;;
     *)
-      fail "当前 CPU 架构 $(uname -m) 暂不受支持，仅支持 amd64 / arm64"
+      fail "Unsupported CPU architecture: $(uname -m). Only amd64 and arm64 are supported."
       ;;
   esac
 
-  success "CPU 架构检测通过: ${ARCH}"
+  success "CPU architecture check passed: ${ARCH}"
 }
 
 prepare_dirs() {
-  mkdir -p "$CONFIG_DIR" /usr/local/bin || fail "创建目录失败"
-  success "目录已准备完成"
+  mkdir -p "$CONFIG_DIR" /usr/local/bin || fail "Failed to create required directories."
+  success "Directories are ready."
 }
 
 download_agent() {
-  local url="https://github.com/kzlgithub/onlytun/releases/latest/download/onlytun-agent-linux-${ARCH}"
-  info "开始下载 Agent 二进制: ${url}"
-  curl --retry 3 --retry-delay 2 -fL# "$url" -o "$AGENT_BIN" || fail "下载 Agent 二进制失败，请检查网络或 Release 是否存在"
-  chmod +x "$AGENT_BIN" || fail "设置 Agent 执行权限失败"
-  success "Agent 二进制已安装到 ${AGENT_BIN}"
+  local url="${RELEASE_BASE_URL}/onlytun-agent-linux-${ARCH}"
+  info "Downloading Agent binary: ${url}"
+  curl --retry 3 --retry-delay 2 -fL# "$url" -o "$AGENT_BIN" || fail "Failed to download Agent binary."
+  chmod +x "$AGENT_BIN" || fail "Failed to chmod Agent binary."
+  success "Agent binary installed at ${AGENT_BIN}"
 }
 
 fetch_public_ip() {
-  PUBLIC_IP="$(curl -fsS https://api.ipify.org)" || fail "获取本机公网 IP 失败"
-  [ -n "$PUBLIC_IP" ] || fail "获取到的公网 IP 为空"
-  success "公网 IP: ${PUBLIC_IP}"
+  PUBLIC_IP="$(curl -fsS https://api.ipify.org)" || fail "Failed to detect public IP."
+  [ -n "$PUBLIC_IP" ] || fail "Public IP is empty."
+  success "Public IP: ${PUBLIC_IP}"
 }
 
 json_escape() {
@@ -174,19 +205,19 @@ register_machine() {
 EOF
 )
 
-  info "向面板注册机器..."
+  info "Registering machine with panel..."
   local response
   response="$(curl -fsS -X POST "${PANEL_URL}/api/agent/register" \
     -H "Authorization: Bearer ${INSTALL_TOKEN}" \
     -H "Content-Type: application/json" \
-    -d "$payload")" || fail "注册机器失败，请检查面板地址、安装 token 或网络连接"
+    -d "$payload")" || fail "Machine registration failed. Check panel URL, token, and network."
 
   MACHINE_ID="$(printf '%s' "$response" | grep -oE '"machine_id"[[:space:]]*:[[:space:]]*"[^"]+"' | sed 's/.*"machine_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')"
   PSK="$(printf '%s' "$response" | grep -oE '"psk"[[:space:]]*:[[:space:]]*"[^"]+"' | sed 's/.*"psk"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')"
 
-  [ -n "${MACHINE_ID:-}" ] || fail "注册响应缺少 machine_id"
-  [ -n "${PSK:-}" ] || fail "注册响应缺少 psk"
-  success "机器注册成功，Machine ID: ${MACHINE_ID}"
+  [ -n "${MACHINE_ID:-}" ] || fail "Registration response does not contain machine_id."
+  [ -n "${PSK:-}" ] || fail "Registration response does not contain psk."
+  success "Machine registered. Machine ID: ${MACHINE_ID}"
 }
 
 write_config() {
@@ -201,7 +232,7 @@ write_config() {
   "rules": []
 }
 EOF
-  success "配置文件已写入 ${CONFIG_PATH}"
+  success "Config written to ${CONFIG_PATH}"
 }
 
 write_service() {
@@ -219,27 +250,27 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 EOF
-  success "systemd 服务文件已写入 ${SERVICE_PATH}"
+  success "systemd service written to ${SERVICE_PATH}"
 }
 
 enable_service() {
-  systemctl daemon-reload || fail "systemd daemon-reload 执行失败"
-  systemctl enable onlytun-agent >/dev/null 2>&1 || fail "启用 onlytun-agent 服务失败"
-  systemctl start onlytun-agent || fail "启动 onlytun-agent 服务失败"
-  success "onlytun-agent 服务已启用并启动"
+  systemctl daemon-reload || fail "systemctl daemon-reload failed."
+  systemctl enable onlytun-agent >/dev/null 2>&1 || fail "Failed to enable onlytun-agent."
+  systemctl restart onlytun-agent || fail "Failed to start onlytun-agent."
+  success "onlytun-agent service started."
 }
 
 check_service() {
-  info "等待服务启动..."
+  info "Checking service status..."
   sleep 3
   if systemctl is-active --quiet onlytun-agent; then
-    success "OnlyTun Agent 安装成功，服务运行正常"
-    printf "%b面板地址:%b %s\n" "$GREEN" "$NC" "$PANEL_URL"
-    printf "%b配置文件:%b %s\n" "$GREEN" "$NC" "$CONFIG_PATH"
+    success "OnlyTun Agent installed successfully."
+    printf "%bPanel:%b %s\n" "$GREEN" "$NC" "$PANEL_URL"
+    printf "%bConfig:%b %s\n" "$GREEN" "$NC" "$CONFIG_PATH"
   else
-    warn "服务未处于 active 状态，以下是状态输出："
+    warn "onlytun-agent is not active. Service status:"
     systemctl status onlytun-agent --no-pager || true
-    fail "OnlyTun Agent 安装完成但服务启动失败"
+    fail "OnlyTun Agent was installed but failed to start."
   fi
 }
 
@@ -251,6 +282,7 @@ main() {
   require_command sed
 
   parse_args "$@"
+  prompt_if_missing
   detect_os
   detect_arch
   prepare_dirs

@@ -239,26 +239,8 @@ func (s *MachineService) BuildInstallScripts(baseURL string) (*InstallScriptPayl
 }
 
 func buildInstallCommand(baseURL, role, token string, tunnelPort int) string {
-	escapedBase := shellQuote(baseURL)
 	escapedToken := shellQuote(token)
-	return fmt.Sprintf(
-		`PANEL_URL=%s && INSTALL_TOKEN=%s && REGISTER_JSON=$(curl -fsSL -X POST "$PANEL_URL/api/agent/register" -H "Authorization: Bearer $INSTALL_TOKEN" -H "Content-Type: application/json" -d "{\"name\":\"$(hostname)\",\"role\":%q,\"os\":\"$(uname -s)\"}") && MACHINE_ID=$(printf '%%s' "$REGISTER_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['machine_id'])") && PSK=$(printf '%%s' "$REGISTER_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['psk'])") && mkdir -p /etc/onlytun && cat >/etc/onlytun/cache.json <<EOF
-{
-  "machine_id": "$MACHINE_ID",
-  "role": %q,
-  "psk": "$PSK",
-  "panel_url": "$PANEL_URL",
-  "token": "$INSTALL_TOKEN",
-  "tunnel_listen_addr": "0.0.0.0:%d",
-  "rules": []
-}
-EOF`,
-		escapedBase,
-		escapedToken,
-		shellQuote(role),
-		shellQuote(role),
-		tunnelPort,
-	)
+	return fmt.Sprintf(`bash <(curl -fsSL https://raw.githubusercontent.com/kzlgithub/onlytun/main/scripts/install.sh) --token %s`, escapedToken)
 }
 
 func shellQuote(value string) string {

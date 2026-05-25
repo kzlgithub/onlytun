@@ -182,6 +182,7 @@ func (a *agentRuntime) fetchPanelRules(ctx context.Context) ([]config.RuleConfig
 	if err != nil {
 		return nil, err
 	}
+	req.Header.Set("Authorization", "Bearer "+a.cfg.Token)
 
 	resp, err := a.httpClient.Do(req)
 	if err != nil {

@@ -117,7 +117,13 @@ func registerStaticRoutes(router *gin.Engine, staticFS fs.FS) {
 		indexBytes = []byte("<html><body><h1>OnlyTun Panel</h1></body></html>")
 	}
 
-	router.StaticFS("/", http.FS(staticFS))
+	if assetsFS, err := fs.Sub(staticFS, "assets"); err == nil {
+		router.StaticFS("/assets", http.FS(assetsFS))
+	}
+
+	router.GET("/", func(c *gin.Context) {
+		c.Data(http.StatusOK, "text/html; charset=utf-8", indexBytes)
+	})
 
 	router.NoRoute(func(c *gin.Context) {
 		if strings.HasPrefix(c.Request.URL.Path, "/api/") {

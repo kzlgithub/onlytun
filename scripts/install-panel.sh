@@ -9,13 +9,19 @@ NC='\033[0m'
 
 PANEL_PORT="8080"
 PANEL_PASSWORD=""
+UNINSTALL="false"
+
 PANEL_BIN="/usr/local/bin/onlytun-panel"
 CONFIG_DIR="/etc/onlytun"
-SERVICE_PATH="/etc/systemd/system/onlytun-panel.service"
+SERVICE_NAME="onlytun-panel"
+SERVICE_PATH="/etc/systemd/system/${SERVICE_NAME}.service"
+RELEASE_BASE_URL="${ONLYTUN_RELEASE_BASE_URL:-https://github.com/kzlgithub/onlytun/releases/latest/download}"
 
 usage() {
   cat <<EOF
-Usage: bash scripts/install-panel.sh [--port 8080] [--password YOUR_PASSWORD]
+Usage:
+  bash install-panel.sh --port 8080 --password YOUR_PASSWORD
+  bash install-panel.sh --uninstall
 EOF
 }
 
@@ -38,12 +44,12 @@ fail() {
 
 require_root() {
   if [ "${EUID:-$(id -u)}" -ne 0 ]; then
-    fail "请使用 root 权限运行此脚本。"
+    fail "Please run this script as root."
   fi
 }
 
 require_command() {
-  command -v "$1" >/dev/null 2>&1 || fail "缺少依赖命令: $1"
+  command -v "$1" >/dev/null 2>&1 || fail "Missing required command: $1"
 }
 
 parse_args() {
@@ -57,22 +63,30 @@ parse_args() {
         PANEL_PASSWORD="${2:-}"
         shift 2
         ;;
+      --uninstall)
+        UNINSTALL="true"
+        shift
+        ;;
       -h|--help)
         usage
         exit 0
         ;;
       *)
-        fail "未知参数: $1"
+        fail "Unknown argument: $1"
         ;;
     esac
   done
 
-  printf '%s' "$PANEL_PORT" | grep -Eq '^[0-9]+$' || fail "--port 必须为数字"
-  [ "$PANEL_PORT" -ge 1 ] && [ "$PANEL_PORT" -le 65535 ] || fail "--port 必须在 1-65535 之间"
+  if [ "$UNINSTALL" = "true" ]; then
+    return
+  fi
+
+  printf '%s' "$PANEL_PORT" | grep -Eq '^[0-9]+$' || fail "--port must be a number."
+  [ "$PANEL_PORT" -ge 1 ] && [ "$PANEL_PORT" -le 65535 ] || fail "--port must be between 1 and 65535."
 }
 
 detect_os() {
-  [ -f /etc/os-release ] || fail "无法识别当前操作系统：缺少 /etc/os-release"
+  [ -f /etc/os-release ] || fail "Cannot detect OS: /etc/os-release is missing."
   # shellcheck disable=SC1091
   . /etc/os-release
 
@@ -82,23 +96,23 @@ detect_os() {
 
   case "$os_id" in
     ubuntu)
-      [ "${major:-0}" -ge 18 ] || fail "仅支持 Ubuntu 18.04 及以上版本"
+      [ "${major:-0}" -ge 18 ] || fail "Ubuntu 18.04+ is required."
       ;;
     debian)
-      [ "${major:-0}" -ge 10 ] || fail "仅支持 Debian 10 及以上版本"
+      [ "${major:-0}" -ge 10 ] || fail "Debian 10+ is required."
       ;;
     centos)
-      [ "${major:-0}" -ge 7 ] || fail "仅支持 CentOS 7 及以上版本"
+      [ "${major:-0}" -ge 7 ] || fail "CentOS 7+ is required."
       ;;
     rocky)
-      [ "${major:-0}" -ge 8 ] || fail "仅支持 Rocky Linux 8 及以上版本"
+      [ "${major:-0}" -ge 8 ] || fail "Rocky Linux 8+ is required."
       ;;
     *)
-      fail "当前系统 ${os_id:-unknown} 暂不受支持"
+      fail "Unsupported OS: ${os_id:-unknown}"
       ;;
   esac
 
-  success "操作系统检测通过: ${PRETTY_NAME:-$os_id}"
+  success "OS check passed: ${PRETTY_NAME:-$os_id}"
 }
 
 detect_arch() {
@@ -110,24 +124,24 @@ detect_arch() {
       ARCH="arm64"
       ;;
     *)
-      fail "当前 CPU 架构 $(uname -m) 暂不受支持，仅支持 amd64 / arm64"
+      fail "Unsupported CPU architecture: $(uname -m). Only amd64 and arm64 are supported."
       ;;
   esac
 
-  success "CPU 架构检测通过: ${ARCH}"
-}
-
-download_panel() {
-  local url="https://github.com/kzlgithub/onlytun/releases/latest/download/onlytun-panel-linux-${ARCH}"
-  info "开始下载面板二进制: ${url}"
-  curl --retry 3 --retry-delay 2 -fL# "$url" -o "$PANEL_BIN" || fail "下载面板二进制失败，请检查网络或 Release 是否存在"
-  chmod +x "$PANEL_BIN" || fail "设置面板执行权限失败"
-  success "面板二进制已安装到 ${PANEL_BIN}"
+  success "CPU architecture check passed: ${ARCH}"
 }
 
 prepare_dirs() {
-  mkdir -p "$CONFIG_DIR" /usr/local/bin || fail "创建目录失败"
-  success "目录已准备完成"
+  mkdir -p "$CONFIG_DIR" /usr/local/bin || fail "Failed to create required directories."
+  success "Directories are ready."
+}
+
+download_panel() {
+  local url="${RELEASE_BASE_URL}/onlytun-panel-linux-${ARCH}"
+  info "Downloading panel binary: ${url}"
+  curl --retry 3 --retry-delay 2 -fL# "$url" -o "$PANEL_BIN" || fail "Failed to download panel binary. Check network or GitHub Release."
+  chmod +x "$PANEL_BIN" || fail "Failed to chmod panel binary."
+  success "Panel binary installed at ${PANEL_BIN}"
 }
 
 prompt_password() {
@@ -136,21 +150,21 @@ prompt_password() {
   fi
 
   while true; do
-    printf "请输入面板管理密码: "
+    printf "Panel password: "
     stty -echo
     read -r first
     stty echo
-    printf "\n请再次输入面板管理密码: "
+    printf "\nConfirm panel password: "
     stty -echo
     read -r second
     stty echo
     printf "\n"
 
-    [ -n "$first" ] || warn "密码不能为空"
+    [ -n "$first" ] || warn "Password cannot be empty."
     [ -n "$first" ] || continue
 
     if [ "$first" != "$second" ]; then
-      warn "两次输入的密码不一致，请重新输入"
+      warn "Passwords do not match. Please retry."
       continue
     fi
 
@@ -183,33 +197,75 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 EOF
-  success "systemd 服务文件已写入 ${SERVICE_PATH}"
+  success "systemd service written to ${SERVICE_PATH}"
 }
 
 enable_service() {
-  systemctl daemon-reload || fail "systemd daemon-reload 执行失败"
-  systemctl enable onlytun-panel >/dev/null 2>&1 || fail "启用 onlytun-panel 服务失败"
-  systemctl start onlytun-panel || fail "启动 onlytun-panel 服务失败"
-  success "onlytun-panel 服务已启用并启动"
+  systemctl daemon-reload || fail "systemctl daemon-reload failed."
+  systemctl enable "$SERVICE_NAME" >/dev/null 2>&1 || fail "Failed to enable ${SERVICE_NAME}."
+  systemctl restart "$SERVICE_NAME" || fail "Failed to start ${SERVICE_NAME}."
+  success "${SERVICE_NAME} service started."
+}
+
+valid_ip() {
+  printf '%s' "$1" | grep -Eq '^([0-9]{1,3}\.){3}[0-9]{1,3}$|^[0-9a-fA-F:]+$'
 }
 
 fetch_public_ip() {
-  PUBLIC_IP="$(curl -fsS https://api.ipify.org)" || fail "获取本机公网 IP 失败"
-  [ -n "$PUBLIC_IP" ] || fail "获取到的公网 IP 为空"
+  PUBLIC_IP=""
+  local services="
+https://api.ipify.org
+https://ifconfig.me/ip
+https://icanhazip.com
+https://ident.me
+http://checkip.amazonaws.com
+http://ifconfig.me/ip
+"
+
+  for ip_service in $services; do
+    PUBLIC_IP="$(curl -fsS --connect-timeout 3 --max-time 6 "$ip_service" 2>/dev/null | tr -d '[:space:]' || true)"
+    if [ -n "$PUBLIC_IP" ] && valid_ip "$PUBLIC_IP"; then
+      success "Public IP: ${PUBLIC_IP}"
+      return 0
+    fi
+  done
+
+  PUBLIC_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
+  if [ -n "$PUBLIC_IP" ]; then
+    warn "Could not query public IP services. Showing local server IP instead: ${PUBLIC_IP}"
+    return 0
+  fi
+
+  PUBLIC_IP="SERVER_IP"
+  warn "Could not detect IP automatically. Replace SERVER_IP with your server public IP."
+  return 0
 }
 
 check_service() {
-  info "等待服务启动..."
+  info "Waiting for service startup..."
   sleep 3
-  if systemctl is-active --quiet onlytun-panel; then
+  if systemctl is-active --quiet "$SERVICE_NAME"; then
     fetch_public_ip
-    success "OnlyTun 面板安装成功，服务运行正常"
-    printf "%b访问地址:%b http://%s:%s\n" "$GREEN" "$NC" "$PUBLIC_IP" "$PANEL_PORT"
+    success "OnlyTun Panel installed successfully."
+    printf "%bPanel URL:%b http://%s:%s\n" "$GREEN" "$NC" "$PUBLIC_IP" "$PANEL_PORT"
   else
-    warn "服务未处于 active 状态，以下是状态输出："
-    systemctl status onlytun-panel --no-pager || true
-    fail "OnlyTun 面板安装完成但服务启动失败"
+    warn "Service is not active. Status output:"
+    systemctl status "$SERVICE_NAME" --no-pager || true
+    fail "OnlyTun Panel was installed but failed to start."
   fi
+}
+
+uninstall_panel() {
+  info "Uninstalling OnlyTun Panel..."
+  systemctl stop "$SERVICE_NAME" >/dev/null 2>&1 || true
+  systemctl disable "$SERVICE_NAME" >/dev/null 2>&1 || true
+  pkill -x "$SERVICE_NAME" >/dev/null 2>&1 || true
+  rm -f "$SERVICE_PATH" "/lib/systemd/system/${SERVICE_NAME}.service"
+  rm -f "$PANEL_BIN"
+  rm -rf "$CONFIG_DIR"
+  systemctl daemon-reload >/dev/null 2>&1 || true
+  systemctl reset-failed "$SERVICE_NAME.service" >/dev/null 2>&1 || true
+  success "OnlyTun Panel removed. Service, binary, and ${CONFIG_DIR} have been deleted."
 }
 
 main() {
@@ -218,9 +274,15 @@ main() {
   require_command systemctl
   require_command grep
   require_command sed
-  require_command stty
+  require_command awk
 
   parse_args "$@"
+  if [ "$UNINSTALL" = "true" ]; then
+    uninstall_panel
+    exit 0
+  fi
+
+  require_command stty
   detect_os
   detect_arch
   prepare_dirs

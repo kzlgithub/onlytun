@@ -11,6 +11,7 @@ ROLE=""
 PANEL_URL=""
 INSTALL_TOKEN=""
 MACHINE_NAME=""
+UNINSTALL="false"
 
 AGENT_BIN="/usr/local/bin/onlytun-agent"
 CONFIG_DIR="/etc/onlytun"
@@ -23,6 +24,7 @@ usage() {
   cat <<EOF
 Usage:
   bash install.sh --token INSTALL_TOKEN --role ingress|egress --panel http://host:port
+  bash install.sh --uninstall
 
 Optional non-interactive flags:
   --name MACHINE_NAME
@@ -75,6 +77,10 @@ parse_args() {
         MACHINE_NAME="${2:-}"
         shift 2
         ;;
+      --uninstall)
+        UNINSTALL="true"
+        shift
+        ;;
       -h|--help)
         usage
         exit 0
@@ -84,6 +90,10 @@ parse_args() {
         ;;
     esac
   done
+
+  if [ "$UNINSTALL" = "true" ]; then
+    return
+  fi
 
   [ -n "$INSTALL_TOKEN" ] || fail "--token is required."
 }
@@ -178,16 +188,31 @@ download_agent() {
 
 fetch_public_ip() {
   PUBLIC_IP=""
-  for ip_service in https://api.ipify.org https://ifconfig.me/ip https://icanhazip.com https://ident.me; do
-    PUBLIC_IP="$(curl -fsS --max-time 5 "$ip_service" 2>/dev/null || true)"
+  local services="
+https://api.ipify.org
+https://ifconfig.me/ip
+https://icanhazip.com
+https://ident.me
+http://checkip.amazonaws.com
+http://ifconfig.me/ip
+"
+
+  for ip_service in $services; do
+    PUBLIC_IP="$(curl -fsS --connect-timeout 3 --max-time 6 "$ip_service" 2>/dev/null || true)"
     PUBLIC_IP="$(printf '%s' "$PUBLIC_IP" | tr -d '[:space:]')"
-    if [ -n "$PUBLIC_IP" ]; then
+    if printf '%s' "$PUBLIC_IP" | grep -Eq '^([0-9]{1,3}\.){3}[0-9]{1,3}$|^[0-9a-fA-F:]+$'; then
       break
     fi
   done
-  [ -n "$PUBLIC_IP" ] || fail "Public IP is empty."
+
+  if [ -z "$PUBLIC_IP" ]; then
+    PUBLIC_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
+    [ -n "$PUBLIC_IP" ] || fail "Could not detect a usable IP address."
+    warn "Could not query public IP services. Using local server IP instead: ${PUBLIC_IP}"
+  fi
+
   [ -n "$MACHINE_NAME" ] || MACHINE_NAME="$PUBLIC_IP"
-  success "Public IP: ${PUBLIC_IP}"
+  success "Machine IP: ${PUBLIC_IP}"
 }
 
 json_escape() {
@@ -270,14 +295,33 @@ check_service() {
   fi
 }
 
+uninstall_agent() {
+  info "Uninstalling OnlyTun Agent..."
+  systemctl stop onlytun-agent >/dev/null 2>&1 || true
+  systemctl disable onlytun-agent >/dev/null 2>&1 || true
+  pkill -x onlytun-agent >/dev/null 2>&1 || true
+  rm -f "$SERVICE_PATH" /lib/systemd/system/onlytun-agent.service
+  rm -f "$AGENT_BIN"
+  rm -rf "$CONFIG_DIR"
+  systemctl daemon-reload >/dev/null 2>&1 || true
+  systemctl reset-failed onlytun-agent.service >/dev/null 2>&1 || true
+  success "OnlyTun Agent removed. Service, binary, and ${CONFIG_DIR} have been deleted."
+}
+
 main() {
   require_root
   require_command curl
   require_command systemctl
   require_command grep
   require_command sed
+  require_command awk
 
   parse_args "$@"
+  if [ "$UNINSTALL" = "true" ]; then
+    uninstall_agent
+    exit 0
+  fi
+
   prompt_if_missing
   detect_os
   detect_arch

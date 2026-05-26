@@ -7,11 +7,16 @@ RED='\033[0;31m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
+TARGET=""
+ASSUME_YES="false"
+KEEP_CONFIG="false"
+
 usage() {
   cat <<EOF
 Usage:
-  bash scripts/uninstall.sh agent
-  bash scripts/uninstall.sh panel
+  bash uninstall.sh agent [--yes] [--keep-config]
+  bash uninstall.sh panel [--yes] [--keep-config]
+  bash uninstall.sh all   [--yes] [--keep-config]
 EOF
 }
 
@@ -30,71 +35,104 @@ fail() {
 
 require_root() {
   if [ "${EUID:-$(id -u)}" -ne 0 ]; then
-    fail "请使用 root 权限运行此脚本。"
+    fail "Please run this script as root."
   fi
+}
+
+parse_args() {
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      agent|panel|all)
+        TARGET="$1"
+        shift
+        ;;
+      --yes|-y)
+        ASSUME_YES="true"
+        shift
+        ;;
+      --keep-config)
+        KEEP_CONFIG="true"
+        shift
+        ;;
+      -h|--help)
+        usage
+        exit 0
+        ;;
+      *)
+        fail "Unknown argument: $1"
+        ;;
+    esac
+  done
+
+  [ -n "$TARGET" ] || { usage; exit 1; }
 }
 
 stop_and_disable_service() {
   local service_name="$1"
-  if systemctl list-unit-files | grep -q "^${service_name}\.service"; then
-    systemctl stop "${service_name}" >/dev/null 2>&1 || warn "停止 ${service_name} 服务失败，继续执行"
-    systemctl disable "${service_name}" >/dev/null 2>&1 || warn "禁用 ${service_name} 服务失败，继续执行"
-    rm -f "/etc/systemd/system/${service_name}.service"
-    systemctl daemon-reload >/dev/null 2>&1 || warn "systemd daemon-reload 执行失败，继续执行"
-    success "${service_name} 服务已停止并禁用"
-  else
-    warn "未找到 ${service_name} 服务，跳过 systemd 清理"
-  fi
+  systemctl stop "$service_name" >/dev/null 2>&1 || true
+  systemctl disable "$service_name" >/dev/null 2>&1 || true
+  systemctl reset-failed "${service_name}.service" >/dev/null 2>&1 || true
+  rm -f "/etc/systemd/system/${service_name}.service" "/lib/systemd/system/${service_name}.service"
+  pkill -x "$service_name" >/dev/null 2>&1 || true
+  success "${service_name} service removed."
 }
 
-remove_file_if_exists() {
-  local target="$1"
-  if [ -e "$target" ]; then
-    rm -f "$target" || fail "删除文件失败: $target"
-    success "已删除 ${target}"
-  else
-    warn "文件不存在，跳过: $target"
-  fi
+remove_agent() {
+  stop_and_disable_service "onlytun-agent"
+  rm -f /usr/local/bin/onlytun-agent
+  success "Agent binary removed."
 }
 
-maybe_remove_config() {
-  if [ ! -d /etc/onlytun ]; then
-    warn "/etc/onlytun 配置目录不存在，跳过"
+remove_panel() {
+  stop_and_disable_service "onlytun-panel"
+  rm -f /usr/local/bin/onlytun-panel
+  success "Panel binary removed."
+}
+
+remove_config_if_requested() {
+  if [ "$KEEP_CONFIG" = "true" ]; then
+    warn "Keeping /etc/onlytun because --keep-config was provided."
     return
   fi
 
-  printf "是否删除 /etc/onlytun/ 配置目录？输入 y 删除，其它任意键保留 [y/N]: "
-  read -r answer
-  if [ "$answer" = "y" ] || [ "$answer" = "Y" ]; then
-    rm -rf /etc/onlytun || fail "删除 /etc/onlytun 配置目录失败"
-    success "配置目录 /etc/onlytun 已删除"
-  else
-    warn "已保留配置目录 /etc/onlytun"
+  if [ ! -d /etc/onlytun ]; then
+    warn "/etc/onlytun does not exist. Skipping config cleanup."
+    return
   fi
+
+  if [ "$ASSUME_YES" != "true" ]; then
+    printf "Delete /etc/onlytun and all cached config/database files? [y/N]: "
+    read -r answer
+    if [ "$answer" != "y" ] && [ "$answer" != "Y" ]; then
+      warn "Keeping /etc/onlytun."
+      return
+    fi
+  fi
+
+  rm -rf /etc/onlytun || fail "Failed to remove /etc/onlytun."
+  success "/etc/onlytun removed."
 }
 
 main() {
   require_root
+  parse_args "$@"
 
-  [ $# -eq 1 ] || { usage; exit 1; }
-
-  case "$1" in
+  case "$TARGET" in
     agent)
-      stop_and_disable_service "onlytun-agent"
-      remove_file_if_exists "/usr/local/bin/onlytun-agent"
+      remove_agent
       ;;
     panel)
-      stop_and_disable_service "onlytun-panel"
-      remove_file_if_exists "/usr/local/bin/onlytun-panel"
+      remove_panel
       ;;
-    *)
-      usage
-      exit 1
+    all)
+      remove_agent
+      remove_panel
       ;;
   esac
 
-  maybe_remove_config
-  success "卸载完成"
+  systemctl daemon-reload >/dev/null 2>&1 || true
+  remove_config_if_requested
+  success "Uninstall completed."
 }
 
 main "$@"

@@ -32,7 +32,6 @@
         <div class="page-header">
           <div>
             <h3 style="margin: 0">系统概览</h3>
-            <p class="page-subtitle">每 5 秒自动刷新一次，帮助你快速判断当前负载和规则活跃度。</p>
           </div>
           <el-button :loading="loading" @click="loadData">立即刷新</el-button>
         </div>

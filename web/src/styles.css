@@ -2,8 +2,8 @@
   color-scheme: light;
   font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
   background:
-    radial-gradient(circle at top left, rgba(64, 158, 255, 0.18), transparent 28%),
-    linear-gradient(135deg, #f3f7fd 0%, #f8fafc 45%, #eef4ff 100%);
+    radial-gradient(circle at top left, rgba(31, 111, 235, 0.12), transparent 28%),
+    linear-gradient(135deg, #f7faff 0%, #fbfcff 46%, #eef5ff 100%);
   color: #162033;
 }
 
@@ -30,7 +30,8 @@ a {
 .page-shell {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 22px;
+  min-height: calc(100vh - 118px);
 }
 
 .page-header {
@@ -38,6 +39,7 @@ a {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+  min-height: 42px;
 }
 
 .page-title {
@@ -68,7 +70,7 @@ a {
 
 .panel-card {
   border-radius: 22px;
-  border: 1px solid rgba(64, 158, 255, 0.12);
+  border: 1px solid rgba(84, 112, 150, 0.12);
   background: rgba(255, 255, 255, 0.92);
   box-shadow: 0 18px 40px rgba(19, 34, 56, 0.08);
 }
@@ -94,8 +96,8 @@ a {
 .code-block {
   position: relative;
   border-radius: 18px;
-  background: #132238;
-  color: #eff6ff;
+  background: #101b2d;
+  color: #edf5ff;
   padding: 18px 20px;
   font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
   font-size: 13px;
@@ -113,6 +115,27 @@ a {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 20px;
+}
+
+.install-dock {
+  margin-top: auto;
+  align-items: stretch;
+}
+
+.install-dock .panel-card {
+  display: flex;
+  flex-direction: column;
+  min-height: 260px;
+}
+
+.install-dock .el-card__body {
+  display: flex;
+  flex: 1;
+}
+
+.install-dock .code-block {
+  width: 100%;
+  margin-top: auto;
 }
 
 .chart-shell {

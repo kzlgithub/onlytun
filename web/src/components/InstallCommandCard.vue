@@ -4,7 +4,6 @@
       <div class="install-header">
         <div>
           <strong>{{ title }}</strong>
-          <p class="muted install-subtitle">{{ subtitle }}</p>
         </div>
         <el-button type="primary" plain @click="handleCopy">
           一键复制
@@ -80,12 +79,8 @@ async function copyText(text) {
 <style scoped>
 .install-header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 16px;
-}
-
-.install-subtitle {
-  margin: 6px 0 0;
 }
 </style>

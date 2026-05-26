@@ -1,24 +1,10 @@
 <template>
   <div class="page-shell">
-    <section class="two-column">
-      <InstallCommandCard
-        title="入口机安装命令"
-        subtitle="在入口机上执行后，将自动注册并开始拉取面板配置。"
-        :command="machineStore.installCommands.ingress"
-      />
-      <InstallCommandCard
-        title="出口机安装命令"
-        subtitle="在出口机上执行后，会监听隧道端口并接受入口机连接。"
-        :command="machineStore.installCommands.egress"
-      />
-    </section>
-
     <el-card class="panel-card" shadow="never">
       <template #header>
         <div class="page-header">
           <div>
             <h3 style="margin: 0">隧道机列表</h3>
-            <p class="page-subtitle">每 30 秒自动刷新，随时查看节点在线状态与资源占用。</p>
           </div>
           <el-button :loading="loading" @click="loadData">立即刷新</el-button>
         </div>
@@ -69,6 +55,17 @@
         </el-table-column>
       </el-table>
     </el-card>
+
+    <section class="two-column install-dock">
+      <InstallCommandCard
+        title="入口机安装命令"
+        :command="machineStore.installCommands.ingress"
+      />
+      <InstallCommandCard
+        title="出口机安装命令"
+        :command="machineStore.installCommands.egress"
+      />
+    </section>
   </div>
 </template>
 

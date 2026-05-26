@@ -5,7 +5,6 @@
         <div class="page-header">
           <div>
             <h3 style="margin: 0">转发规则</h3>
-            <p class="page-subtitle">每 5 秒刷新实时流量与会话状态，支持新增、编辑、切换启用状态。</p>
           </div>
           <div class="toolbar">
             <el-button :loading="loading" @click="loadData">立即刷新</el-button>

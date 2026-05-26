@@ -2,10 +2,12 @@
   <div class="layout-root">
     <aside class="sidebar">
       <div class="brand">
-        <div class="brand-mark">OT</div>
+        <div class="brand-mark">
+          <span></span>
+          <span></span>
+        </div>
         <div>
           <h1>OnlyTun</h1>
-          <p>Private Tunnel Panel</p>
         </div>
       </div>
 
@@ -13,8 +15,8 @@
         :default-active="activePath"
         class="nav-menu"
         background-color="transparent"
-        text-color="#d9e4f6"
-        active-text-color="#ffffff"
+        text-color="#52657d"
+        active-text-color="#1f6feb"
         router
       >
         <el-menu-item index="/dashboard">
@@ -30,17 +32,24 @@
           <span>转发规则</span>
         </el-menu-item>
       </el-menu>
+
+      <div class="sidebar-card">
+        <strong>{{ currentTitle }}</strong>
+        <span>安全隧道运行中</span>
+      </div>
     </aside>
 
     <section class="main-area">
       <header class="topbar">
         <div>
           <h2>{{ currentTitle }}</h2>
-          <p>{{ subtitle }}</p>
         </div>
-        <el-button type="danger" plain @click="handleLogout">
-          退出登录
-        </el-button>
+        <div class="topbar-actions">
+          <span class="status-pill">节点在线</span>
+          <el-button type="danger" plain @click="handleLogout">
+            退出登录
+          </el-button>
+        </div>
       </header>
 
       <main class="content-area">
@@ -67,12 +76,6 @@ const activePath = computed(() => {
 });
 
 const currentTitle = computed(() => route.meta?.title || 'OnlyTun');
-const subtitle = computed(() => {
-  if (route.path === '/dashboard') return '实时掌握整体运行状态和今日流量走势';
-  if (route.path === '/machines') return '管理入口机与出口机，快速获取安装命令';
-  if (route.path.startsWith('/rules')) return '维护转发链路、查看流量和会话情况';
-  return 'OnlyTun 管理面板';
-});
 
 function handleLogout() {
   authStore.logout();
@@ -92,42 +95,59 @@ function handleLogout() {
   top: 0;
   height: 100vh;
   padding: 28px 22px;
+  display: flex;
+  flex-direction: column;
   background:
-    radial-gradient(circle at top, rgba(64, 158, 255, 0.22), transparent 34%),
-    linear-gradient(180deg, #10223b 0%, #112746 60%, #0d1c33 100%);
-  color: #eff6ff;
+    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(244, 248, 255, 0.96)),
+    radial-gradient(circle at 20% 0%, rgba(64, 158, 255, 0.16), transparent 32%);
+  border-right: 1px solid rgba(84, 112, 150, 0.14);
+  color: #18263a;
 }
 
 .brand {
   display: flex;
   align-items: center;
   gap: 14px;
-  margin-bottom: 28px;
-  padding: 10px 8px 18px;
+  margin-bottom: 32px;
+  padding: 8px 8px 18px;
 }
 
 .brand-mark {
   width: 52px;
   height: 52px;
-  border-radius: 18px;
-  display: grid;
-  place-items: center;
-  font-weight: 800;
-  letter-spacing: 0.06em;
-  color: #132238;
-  background: linear-gradient(135deg, #d8efff, #86c4ff 65%, #c7f7d8);
-  box-shadow: 0 16px 30px rgba(64, 158, 255, 0.28);
+  border-radius: 16px;
+  position: relative;
+  background: #f7fbff;
+  border: 1px solid rgba(31, 111, 235, 0.16);
+  box-shadow: 0 14px 30px rgba(31, 111, 235, 0.1);
+}
+
+.brand-mark span {
+  position: absolute;
+  display: block;
+  border-radius: 999px;
+}
+
+.brand-mark span:first-child {
+  width: 28px;
+  height: 12px;
+  left: 12px;
+  top: 14px;
+  background: #1f6feb;
+}
+
+.brand-mark span:last-child {
+  width: 12px;
+  height: 28px;
+  right: 12px;
+  bottom: 10px;
+  background: #46b389;
 }
 
 .brand h1 {
   margin: 0;
   font-size: 24px;
-}
-
-.brand p {
-  margin: 6px 0 0;
-  font-size: 12px;
-  color: rgba(239, 246, 255, 0.72);
+  letter-spacing: -0.03em;
 }
 
 .nav-menu {
@@ -135,15 +155,46 @@ function handleLogout() {
 }
 
 :deep(.el-menu-item) {
-  height: 54px;
-  border-radius: 16px;
+  height: 50px;
+  border-radius: 14px;
   margin-bottom: 8px;
   font-size: 15px;
+  color: #52657d;
+}
+
+:deep(.el-menu-item:hover) {
+  background: rgba(31, 111, 235, 0.07);
 }
 
 :deep(.el-menu-item.is-active) {
-  background: linear-gradient(135deg, rgba(64, 158, 255, 0.28), rgba(103, 194, 58, 0.18));
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+  background: #eaf2ff;
+  color: #1f6feb;
+  box-shadow: inset 3px 0 0 #1f6feb;
+}
+
+.sidebar-card {
+  margin-top: auto;
+  padding: 16px;
+  border-radius: 18px;
+  background: #ffffff;
+  border: 1px solid rgba(84, 112, 150, 0.12);
+  box-shadow: 0 14px 28px rgba(31, 44, 62, 0.06);
+}
+
+.sidebar-card strong,
+.sidebar-card span {
+  display: block;
+}
+
+.sidebar-card strong {
+  font-size: 14px;
+  color: #18263a;
+}
+
+.sidebar-card span {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #6e7f95;
 }
 
 .main-area {
@@ -153,21 +204,36 @@ function handleLogout() {
 
 .topbar {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 8px 4px 26px;
+  padding: 8px 4px 22px;
 }
 
 .topbar h2 {
   margin: 0;
   font-size: 32px;
   color: #132238;
+  letter-spacing: -0.04em;
 }
 
-.topbar p {
-  margin: 8px 0 0;
-  color: #72829d;
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  height: 34px;
+  padding: 0 13px;
+  border-radius: 999px;
+  color: #1b7f5c;
+  background: rgba(70, 179, 137, 0.12);
+  border: 1px solid rgba(70, 179, 137, 0.2);
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .content-area {

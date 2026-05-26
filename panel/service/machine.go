@@ -154,6 +154,7 @@ func (s *MachineService) RegisterMachine(token string, input RegisterMachineInpu
 		}
 		sharedPSK = psk
 
+		now := time.Now()
 		record := &paneldb.Machine{
 			Name:          name,
 			Role:          role,
@@ -161,7 +162,8 @@ func (s *MachineService) RegisterMachine(token string, input RegisterMachineInpu
 			Token:         token,
 			Online:        true,
 			OS:            strings.TrimSpace(input.OS),
-			LastHeartbeat: time.Now(),
+			LastHeartbeat: now,
+			OnlineSince:   now,
 		}
 		if err := tx.Create(record).Error; err != nil {
 			return err
@@ -214,7 +216,7 @@ func (s *MachineService) AuthenticateMachineToken(token string) (*paneldb.Machin
 	return &machine, nil
 }
 
-func (s *MachineService) UpdateHeartbeat(machine *paneldb.Machine, role, ip string, cpuPercent, memPercent float64) error {
+func (s *MachineService) UpdateHeartbeat(machine *paneldb.Machine, role, ip string, cpuPercent, memPercent, diskPercent float64) error {
 	if machine == nil {
 		return ErrMachineNotFound
 	}
@@ -229,15 +231,21 @@ func (s *MachineService) UpdateHeartbeat(machine *paneldb.Machine, role, ip stri
 		updateIP = machine.IP
 	}
 
+	updates := map[string]any{
+		"ip":             updateIP,
+		"online":         true,
+		"cpu_percent":    cpuPercent,
+		"mem_percent":    memPercent,
+		"disk_percent":   diskPercent,
+		"last_heartbeat": time.Now(),
+	}
+	if !machine.Online || machine.OnlineSince.IsZero() {
+		updates["online_since"] = time.Now()
+	}
+
 	return s.db.Model(&paneldb.Machine{}).
 		Where("id = ?", machine.ID).
-		Updates(map[string]any{
-			"ip":             updateIP,
-			"online":         true,
-			"cpu_percent":    cpuPercent,
-			"mem_percent":    memPercent,
-			"last_heartbeat": time.Now(),
-		}).Error
+		Updates(updates).Error
 }
 
 func (s *MachineService) MarkOfflineBefore(cutoff time.Time) error {

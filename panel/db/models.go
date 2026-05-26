@@ -25,7 +25,9 @@ type Machine struct {
 	OS            string    `gorm:"size:64" json:"os"`
 	CPUPercent    float64   `gorm:"not null;default:0" json:"cpu_percent"`
 	MemPercent    float64   `gorm:"not null;default:0" json:"mem_percent"`
+	DiskPercent   float64   `gorm:"not null;default:0" json:"disk_percent"`
 	LastHeartbeat time.Time `gorm:"index" json:"last_heartbeat"`
+	OnlineSince   time.Time `json:"online_since"`
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
 }

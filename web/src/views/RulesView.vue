@@ -2,19 +2,28 @@
   <div class="page-shell">
     <el-card class="panel-card" shadow="never">
       <template #header>
-        <div class="page-header">
+        <div class="page-header rules-header">
           <div>
-            <h3 style="margin: 0">转发规则</h3>
+            <h3 class="section-title">转发规则</h3>
+            <p class="section-meta">
+              共 {{ ruleStore.rules.length }} 条，{{ ruleStore.enabledRules.length }} 条启用
+              <span v-if="refreshing"> · 正在刷新</span>
+            </p>
           </div>
           <div class="toolbar">
-            <span v-if="refreshing" class="refresh-hint">正在更新</span>
+            <el-input
+              v-model="keyword"
+              class="search-input"
+              clearable
+              placeholder="搜索规则、路径、协议"
+            />
             <el-button :loading="manualRefreshing" @click="manualRefresh">立即刷新</el-button>
             <el-button type="primary" @click="openCreateDialog">新增规则</el-button>
           </div>
         </div>
       </template>
 
-      <el-table :data="ruleStore.rules" v-loading="initialLoading" row-key="id">
+      <el-table :data="filteredRules" v-loading="initialLoading" row-key="id">
         <el-table-column label="规则名称" min-width="180">
           <template #default="{ row }">
             <router-link :to="`/rules/${row.id}/stats`" class="rule-link">
@@ -22,7 +31,7 @@
             </router-link>
           </template>
         </el-table-column>
-        <el-table-column label="路径" min-width="320">
+        <el-table-column label="路径" min-width="330">
           <template #default="{ row }">
             <div class="path-line">
               {{ buildRoutePath(row) }}
@@ -86,7 +95,7 @@
 </template>
 
 <script setup>
-import { onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import RuleFormDialog from '../components/RuleFormDialog.vue';
 import { useMachineStore } from '../stores/machine';
@@ -96,6 +105,7 @@ import { formatBytes, formatSpeed, protocolLabel } from '../utils/format';
 const machineStore = useMachineStore();
 const ruleStore = useRuleStore();
 
+const keyword = ref('');
 const initialLoading = ref(false);
 const manualRefreshing = ref(false);
 const refreshing = ref(false);
@@ -105,11 +115,35 @@ const submitting = ref(false);
 let timer;
 let loadingPromise = null;
 
+const filteredRules = computed(() => {
+  const q = keyword.value.trim().toLowerCase();
+  if (!q) {
+    return ruleStore.rules;
+  }
+  return ruleStore.rules.filter((rule) => {
+    const path = buildRoutePath(rule);
+    const haystack = [
+      rule.name,
+      rule.protocol,
+      protocolLabel(rule.protocol),
+      rule.target_addr,
+      rule.target_port,
+      rule.ingress_port,
+      path,
+      rule.remark,
+    ]
+      .filter((item) => item !== undefined && item !== null)
+      .join(' ')
+      .toLowerCase();
+    return haystack.includes(q);
+  });
+});
+
 function buildRoutePath(rule) {
   const ingress = machineStore.machineMap[rule.ingress_machine_id];
   const egress = machineStore.machineMap[rule.egress_machine_id];
-  const ingressName = ingress?.name || '入口机';
-  const egressName = egress?.name || '出口机';
+  const ingressName = ingress?.name || ingress?.ip || '入口机';
+  const egressName = egress?.name || egress?.ip || '出口机';
   return `${ingressName}:${rule.ingress_port} → ${egressName} → ${rule.target_addr}:${rule.target_port}`;
 }
 
@@ -211,6 +245,26 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.rules-header {
+  align-items: flex-start;
+}
+
+.section-title {
+  margin: 0;
+  font-size: 20px;
+  color: #132238;
+}
+
+.section-meta {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: #72829d;
+}
+
+.search-input {
+  width: 260px;
+}
+
 .rule-link {
   color: #409eff;
   font-weight: 600;
@@ -221,8 +275,14 @@ onBeforeUnmount(() => {
   line-height: 1.6;
 }
 
-.refresh-hint {
-  font-size: 13px;
-  color: #8a99ad;
+@media (max-width: 900px) {
+  .rules-header {
+    flex-direction: column;
+  }
+
+  .toolbar,
+  .search-input {
+    width: 100%;
+  }
 }
 </style>

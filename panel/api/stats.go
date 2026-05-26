@@ -10,11 +10,12 @@ import (
 )
 
 type heartbeatRequest struct {
-	MachineID  string  `json:"machine_id"`
-	Role       string  `json:"role"`
-	IP         string  `json:"ip"`
-	CPUPercent float64 `json:"cpu_percent"`
-	MemPercent float64 `json:"mem_percent"`
+	MachineID   string  `json:"machine_id"`
+	Role        string  `json:"role"`
+	IP          string  `json:"ip"`
+	CPUPercent  float64 `json:"cpu_percent"`
+	MemPercent  float64 `json:"mem_percent"`
+	DiskPercent float64 `json:"disk_percent"`
 }
 
 type statsRequest struct {
@@ -60,7 +61,7 @@ func (h *Handler) AgentHeartbeat(c *gin.Context) {
 		ip = ClientIP(c)
 	}
 
-	if err := h.Machines.UpdateHeartbeat(machine, req.Role, ip, req.CPUPercent, req.MemPercent); err != nil {
+	if err := h.Machines.UpdateHeartbeat(machine, req.Role, ip, req.CPUPercent, req.MemPercent, req.DiskPercent); err != nil {
 		status := http.StatusInternalServerError
 		if errors.Is(err, service.ErrInvalidRole) {
 			status = http.StatusBadRequest

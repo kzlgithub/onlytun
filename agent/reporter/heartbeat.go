@@ -14,17 +14,19 @@ import (
 	"time"
 
 	"github.com/shirou/gopsutil/v3/cpu"
+	"github.com/shirou/gopsutil/v3/disk"
 	"github.com/shirou/gopsutil/v3/mem"
 )
 
 const reportInterval = 30 * time.Second
 
 type heartbeatPayload struct {
-	MachineID  string  `json:"machine_id"`
-	Role       string  `json:"role"`
-	IP         string  `json:"ip"`
-	CPUPercent float64 `json:"cpu_percent"`
-	MemPercent float64 `json:"mem_percent"`
+	MachineID   string  `json:"machine_id"`
+	Role        string  `json:"role"`
+	IP          string  `json:"ip"`
+	CPUPercent  float64 `json:"cpu_percent"`
+	MemPercent  float64 `json:"mem_percent"`
+	DiskPercent float64 `json:"disk_percent"`
 }
 
 // Reporter 负责向面板上报心跳和统计数据。
@@ -89,12 +91,20 @@ func (r *Reporter) sendHeartbeat(ctx context.Context) {
 		return
 	}
 
+	diskPercent := 0.0
+	if diskStats, err := disk.Usage("/"); err == nil {
+		diskPercent = diskStats.UsedPercent
+	} else {
+		log.Printf("[WARN] reporter heartbeat disk sample failed: %v", err)
+	}
+
 	payload := heartbeatPayload{
-		MachineID:  r.machineID,
-		Role:       r.role,
-		IP:         detectPublicIP(),
-		CPUPercent: firstCPUPercent(cpuPercent),
-		MemPercent: memStats.UsedPercent,
+		MachineID:   r.machineID,
+		Role:        r.role,
+		IP:          detectPublicIP(),
+		CPUPercent:  firstCPUPercent(cpuPercent),
+		MemPercent:  memStats.UsedPercent,
+		DiskPercent: diskPercent,
 	}
 
 	if err := r.postJSON(ctx, "/api/agent/heartbeat", payload); err != nil {

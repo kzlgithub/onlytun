@@ -33,22 +33,15 @@
         </el-menu-item>
       </el-menu>
 
-      <div class="sidebar-card">
-        <strong>{{ currentTitle }}</strong>
-        <span>安全隧道运行中</span>
-      </div>
+      <el-button class="sidebar-logout" type="danger" plain @click="handleLogout">
+        退出登录
+      </el-button>
     </aside>
 
     <section class="main-area">
       <header class="topbar">
         <div>
           <h2>{{ currentTitle }}</h2>
-        </div>
-        <div class="topbar-actions">
-          <span class="status-pill">节点在线</span>
-          <el-button type="danger" plain @click="handleLogout">
-            退出登录
-          </el-button>
         </div>
       </header>
 
@@ -172,29 +165,11 @@ function handleLogout() {
   box-shadow: inset 3px 0 0 #1f6feb;
 }
 
-.sidebar-card {
+.sidebar-logout {
   margin-top: auto;
-  padding: 16px;
-  border-radius: 18px;
-  background: #ffffff;
-  border: 1px solid rgba(84, 112, 150, 0.12);
-  box-shadow: 0 14px 28px rgba(31, 44, 62, 0.06);
-}
-
-.sidebar-card strong,
-.sidebar-card span {
-  display: block;
-}
-
-.sidebar-card strong {
-  font-size: 14px;
-  color: #18263a;
-}
-
-.sidebar-card span {
-  margin-top: 6px;
-  font-size: 12px;
-  color: #6e7f95;
+  width: 100%;
+  height: 42px;
+  border-radius: 13px;
 }
 
 .main-area {
@@ -215,25 +190,6 @@ function handleLogout() {
   font-size: 32px;
   color: #132238;
   letter-spacing: -0.04em;
-}
-
-.topbar-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.status-pill {
-  display: inline-flex;
-  align-items: center;
-  height: 34px;
-  padding: 0 13px;
-  border-radius: 999px;
-  color: #1b7f5c;
-  background: rgba(70, 179, 137, 0.12);
-  border: 1px solid rgba(70, 179, 137, 0.2);
-  font-size: 13px;
-  font-weight: 600;
 }
 
 .content-area {

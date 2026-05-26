@@ -15,6 +15,7 @@ import (
 
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/disk"
+	"github.com/shirou/gopsutil/v3/host"
 	"github.com/shirou/gopsutil/v3/mem"
 )
 
@@ -27,6 +28,7 @@ type heartbeatPayload struct {
 	CPUPercent  float64 `json:"cpu_percent"`
 	MemPercent  float64 `json:"mem_percent"`
 	DiskPercent float64 `json:"disk_percent"`
+	UptimeSec   uint64  `json:"uptime_seconds"`
 }
 
 // Reporter 负责向面板上报心跳和统计数据。
@@ -98,6 +100,11 @@ func (r *Reporter) sendHeartbeat(ctx context.Context) {
 		log.Printf("[WARN] reporter heartbeat disk sample failed: %v", err)
 	}
 
+	uptimeSec, err := host.Uptime()
+	if err != nil {
+		log.Printf("[WARN] reporter heartbeat uptime sample failed: %v", err)
+	}
+
 	payload := heartbeatPayload{
 		MachineID:   r.machineID,
 		Role:        r.role,
@@ -105,6 +112,7 @@ func (r *Reporter) sendHeartbeat(ctx context.Context) {
 		CPUPercent:  firstCPUPercent(cpuPercent),
 		MemPercent:  memStats.UsedPercent,
 		DiskPercent: diskPercent,
+		UptimeSec:   uptimeSec,
 	}
 
 	if err := r.postJSON(ctx, "/api/agent/heartbeat", payload); err != nil {

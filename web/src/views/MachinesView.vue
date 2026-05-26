@@ -6,8 +6,9 @@
           <div>
             <h3 class="section-title">隧道机</h3>
             <p class="section-meta">
-              {{ onlineCount }}/{{ machineStore.machines.length }} 在线
-              <span v-if="refreshing"> · 正在刷新</span>
+              {{ onlineCount }}/{{ displayMachines.length }} 在线
+              <span v-if="demoMode || localDemoMode"> · 演示卡片</span>
+              <span v-if="localDemoMode"> · 本地可操作</span>
             </p>
           </div>
           <div class="toolbar">
@@ -21,6 +22,13 @@
             <el-button type="primary" plain @click="openInstallDialog('egress')">
               出口机安装命令
             </el-button>
+            <el-button v-if="localDemoMode" type="success" plain @click="addDemoMachine('ingress')">
+              新增入口演示
+            </el-button>
+            <el-button v-if="localDemoMode" type="success" plain @click="addDemoMachine('egress')">
+              新增出口演示
+            </el-button>
+            <el-button v-if="localDemoMode" plain @click="resetDemoMachines">重置演示</el-button>
             <el-button :loading="manualRefreshing" @click="manualRefresh">立即刷新</el-button>
           </div>
         </div>
@@ -32,8 +40,6 @@
           role="ingress"
           :machines="filteredIngressMachines"
           :rule-store="ruleStore"
-          :expanded="expanded"
-          @toggle="toggleExpand"
           @copy-ip="copyIP"
           @rename="handleRename"
           @delete="handleDelete"
@@ -44,8 +50,6 @@
           role="egress"
           :machines="filteredEgressMachines"
           :rule-store="ruleStore"
-          :expanded="expanded"
-          @toggle="toggleExpand"
           @copy-ip="copyIP"
           @rename="handleRename"
           @delete="handleDelete"
@@ -91,7 +95,6 @@ const initialLoading = ref(false);
 const manualRefreshing = ref(false);
 const refreshing = ref(false);
 const nowTick = ref(Date.now());
-const expanded = reactive({});
 const installDialog = reactive({
   visible: false,
   role: 'ingress',
@@ -102,14 +105,23 @@ let loadingPromise = null;
 let lastTotalsAt = 0;
 let lastRulesAt = 0;
 
-const onlineCount = computed(() => machineStore.machines.filter((item) => item.online).length);
+const demoMode = new URLSearchParams(window.location.search).get('demo') === '1';
+const localDemoMode = new URLSearchParams(window.location.search).get('localDemo') === '1';
+const demoMachines = ref(loadDemoMachines());
+const displayMachines = computed(() => {
+  if (localDemoMode) {
+    return demoMachines.value;
+  }
+  return demoMode ? [...machineStore.machines, ...demoMachines.value] : machineStore.machines;
+});
+const onlineCount = computed(() => displayMachines.value.filter((item) => item.online).length);
 
 const filteredMachines = computed(() => {
   const q = keyword.value.trim().toLowerCase();
   if (!q) {
-    return machineStore.machines;
+    return displayMachines.value;
   }
-  return machineStore.machines.filter((item) => {
+  return displayMachines.value.filter((item) => {
     const haystack = [
       item.name,
       item.ip,
@@ -130,6 +142,13 @@ const filteredEgressMachines = computed(() => filteredMachines.value.filter((ite
 const currentInstallCommand = computed(() => machineStore.installCommands[installDialog.role] || '');
 
 async function loadData(options = {}) {
+  if (localDemoMode) {
+    initialLoading.value = false;
+    manualRefreshing.value = false;
+    refreshing.value = false;
+    return Promise.resolve();
+  }
+
   if (loadingPromise) {
     if (options.manual) {
       manualRefreshing.value = true;
@@ -179,6 +198,11 @@ function manualRefresh() {
 async function openInstallDialog(role) {
   installDialog.role = role;
   installDialog.visible = true;
+  if (localDemoMode) {
+    machineStore.installCommands[role] =
+      `bash <(curl -fsSL https://raw.githubusercontent.com/kzlgithub/onlytun/main/scripts/install.sh) --token 'demo-token-${role}' --role ${role} --panel 'http://127.0.0.1:8080'`;
+    return;
+  }
   if (!machineStore.installCommands[role]) {
     await machineStore.fetchInstallCommands();
   }
@@ -186,10 +210,6 @@ async function openInstallDialog(role) {
 
 async function copyInstallCommand() {
   await copyText(currentInstallCommand.value, '安装命令已复制');
-}
-
-function toggleExpand(id) {
-  expanded[id] = !expanded[id];
 }
 
 async function copyIP(machine) {
@@ -225,6 +245,24 @@ async function copyText(text, successText) {
 }
 
 async function handleRename(machine) {
+  if (localDemoMode && machine.fake) {
+    const { value } = await ElMessageBox.prompt('请输入新的机器名称', '修改演示名称', {
+      confirmButtonText: '保存',
+      cancelButtonText: '取消',
+      inputValue: machine.name,
+      inputValidator: (value) => Boolean(value && value.trim()),
+      inputErrorMessage: '机器名称不能为空',
+    });
+    updateDemoMachine(machine.id, { name: value.trim() });
+    ElMessage.success('演示名称已更新');
+    return;
+  }
+
+  if (machine.fake) {
+    ElMessage.info('演示卡片不支持改名');
+    return;
+  }
+
   const { value } = await ElMessageBox.prompt('请输入新的机器名称', '修改名称', {
     confirmButtonText: '保存',
     cancelButtonText: '取消',
@@ -238,6 +276,23 @@ async function handleRename(machine) {
 }
 
 async function handleDelete(machine) {
+  if (localDemoMode && machine.fake) {
+    await ElMessageBox.confirm(`确定删除演示卡片“${machine.name}”吗？`, '删除演示卡片', {
+      type: 'warning',
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+    });
+    demoMachines.value = demoMachines.value.filter((item) => item.id !== machine.id);
+    saveDemoMachines();
+    ElMessage.success('演示卡片已删除');
+    return;
+  }
+
+  if (machine.fake) {
+    ElMessage.info('演示卡片不会写入数据库，无需删除');
+    return;
+  }
+
   await ElMessageBox.confirm(
     `确定删除隧道机“${machine.name}”吗？如果仍有关联启用规则，后端会拒绝删除。`,
     '删除确认',
@@ -273,9 +328,8 @@ const MachineGroup = defineComponent({
     role: { type: String, required: true },
     machines: { type: Array, required: true },
     ruleStore: { type: Object, required: true },
-    expanded: { type: Object, required: true },
   },
-  emits: ['toggle', 'copy-ip', 'rename', 'delete'],
+  emits: ['copy-ip', 'rename', 'delete'],
   setup(props, { emit }) {
     const renderMachine = (machine) =>
       h(
@@ -284,7 +338,7 @@ const MachineGroup = defineComponent({
           class: [
             'machine-card',
             machine.online ? 'is-online' : 'is-offline',
-            props.expanded[machine.id] ? 'is-expanded' : 'is-compact',
+            'is-expanded',
           ],
         },
         [
@@ -322,28 +376,17 @@ const MachineGroup = defineComponent({
 
           h('div', { class: 'compact-metrics' }, [
             metricPill('流量', machineTraffic(machine, props.ruleStore), 'blue'),
-            metricPill('规则', `${machine.rule_count || 0} 条`, 'green'),
           ]),
 
-          props.expanded[machine.id]
-            ? h('div', { class: 'machine-detail' }, [
-                progressRow('CPU', Number(machine.cpu_percent || 0), 'cpu'),
-                progressRow('内存', Number(machine.mem_percent || 0), 'mem'),
-                progressRow('硬盘', optionalPercent(machine.disk_percent), 'disk'),
-                detailRow('网速', machineSpeed(machine, props.ruleStore)),
-                detailRow('信息', machineInfo(machine)),
-                detailRow('流量', machineTraffic(machine, props.ruleStore)),
-                detailRow('在线时间', machineOnlineTime(machine, nowTick.value)),
-                detailRow('最后心跳', formatRelativeTime(machine.last_heartbeat)),
-              ])
-            : null,
+          h('div', { class: 'machine-detail' }, [
+            progressRow('CPU', Number(machine.cpu_percent || 0), 'cpu'),
+            progressRow('内存', Number(machine.mem_percent || 0), 'mem'),
+            progressRow('硬盘', optionalPercent(machine.disk_percent), 'disk'),
+            detailRow('网速', machineSpeed(machine, props.ruleStore)),
+            detailRow('在线时间', machineOnlineTime(machine, nowTick.value)),
+          ]),
 
           h('div', { class: 'machine-actions' }, [
-            h(
-              ElButton,
-              { link: true, type: 'primary', onClick: () => emit('toggle', machine.id) },
-              () => (props.expanded[machine.id] ? '收起详情' : '展开详情'),
-            ),
             h(ElButton, { link: true, type: 'primary', onClick: () => emit('rename', machine) }, () => '改名'),
             h(ElButton, { link: true, type: 'danger', onClick: () => emit('delete', machine) }, () => '删除'),
           ]),
@@ -406,11 +449,19 @@ function relatedRules(machine, ruleStore) {
 }
 
 function machineTraffic(machine, ruleStore) {
+  if (machine.demo_traffic !== undefined) {
+    return formatBytes(machine.demo_traffic);
+  }
+
   const total = relatedRules(machine, ruleStore).reduce((sum, rule) => sum + (ruleStore.dayTotals[rule.id] || 0), 0);
   return formatBytes(total);
 }
 
 function machineSpeed(machine, ruleStore) {
+  if (machine.demo_speed) {
+    return `↑ ${formatSpeed(machine.demo_speed.up || 0)}  ↓ ${formatSpeed(machine.demo_speed.down || 0)}`;
+  }
+
   const speed = relatedRules(machine, ruleStore).reduce(
     (sum, rule) => {
       const rate = ruleStore.rateMap[rule.id] || {};
@@ -424,6 +475,10 @@ function machineSpeed(machine, ruleStore) {
 }
 
 function machineInfo(machine) {
+  if (machine.demo_info) {
+    return machine.demo_info;
+  }
+
   const parts = [machine.os || '--'];
   if (machine.rule_count !== undefined) {
     parts.push(`${machine.rule_count || 0} 条规则`);
@@ -435,11 +490,18 @@ function machineOnlineTime(machine, now) {
   if (!machine.online) {
     return '离线';
   }
+  if (Number(machine.uptime_seconds) > 0) {
+    return formatDuration(Number(machine.uptime_seconds));
+  }
   const since = new Date(machine.online_since || machine.last_heartbeat).getTime();
   if (!Number.isFinite(since) || Number.isNaN(since)) {
     return '--';
   }
   const seconds = Math.max(Math.floor((now - since) / 1000), 0);
+  return formatDuration(seconds);
+}
+
+function formatDuration(seconds) {
   if (seconds < 60) {
     return `${seconds} 秒`;
   }
@@ -454,6 +516,217 @@ function machineOnlineTime(machine, now) {
   }
   return `${hours} 小时 ${minutes % 60} 分钟`;
 }
+
+function addDemoMachine(role) {
+  const index = demoMachines.value.filter((item) => item.role === role).length + 1;
+  const now = Date.now();
+  const isIngress = role === 'ingress';
+  demoMachines.value.unshift({
+    id: `demo-${role}-${now}`,
+    fake: true,
+    name: `${isIngress ? '入口' : '出口'}演示 · ${index}`,
+    role,
+    ip: isIngress ? `203.0.113.${20 + index}` : `198.51.100.${20 + index}`,
+    online: true,
+    os: 'Ubuntu 22.04',
+    cpu_percent: Math.min(95, 8 + index * 7),
+    mem_percent: Math.min(92, 18 + index * 9),
+    disk_percent: Math.min(88, 24 + index * 6),
+    uptime_seconds: index * 37 * 60,
+    rule_count: Math.max(1, index * 2),
+    demo_traffic: (32 + index * 18) * 1024 ** 3,
+    demo_speed: { up: (300 + index * 180) * 1024, down: (700 + index * 260) * 1024 },
+    demo_info: `${2 + index * 2} Cores · ${4 + index * 4} GB · ${80 + index * 40} GB`,
+    online_since: new Date(now - index * 37 * 60 * 1000).toISOString(),
+    last_heartbeat: new Date(now - 3 * 1000).toISOString(),
+  });
+  saveDemoMachines();
+  ElMessage.success('演示卡片已新增');
+}
+
+async function resetDemoMachines() {
+  await ElMessageBox.confirm('确定重置成本地默认演示卡片吗？', '重置演示', {
+    type: 'warning',
+    confirmButtonText: '重置',
+    cancelButtonText: '取消',
+  });
+  demoMachines.value = buildDemoMachines();
+  saveDemoMachines();
+  ElMessage.success('演示卡片已重置');
+}
+
+function updateDemoMachine(id, patch) {
+  const current = demoMachines.value.find((item) => item.id === id);
+  if (!current) {
+    return;
+  }
+  Object.assign(current, patch);
+  saveDemoMachines();
+}
+
+function loadDemoMachines() {
+  if (!localStorage) {
+    return buildDemoMachines();
+  }
+  try {
+    const raw = localStorage.getItem('onlytun_demo_machines');
+    if (!raw) {
+      return buildDemoMachines();
+    }
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) && parsed.length > 0 ? parsed : buildDemoMachines();
+  } catch {
+    return buildDemoMachines();
+  }
+}
+
+function saveDemoMachines() {
+  if (!localStorage) {
+    return;
+  }
+  localStorage.setItem('onlytun_demo_machines', JSON.stringify(demoMachines.value));
+}
+
+function buildDemoMachines() {
+  const now = Date.now();
+  const gb = 1024 ** 3;
+  const mb = 1024 ** 2;
+  return [
+    {
+      id: 'demo-ingress-shanghai',
+      fake: true,
+      name: '上海入口 · A1',
+      role: 'ingress',
+      ip: '203.0.113.21',
+      online: true,
+      os: 'Ubuntu 22.04',
+      cpu_percent: 7,
+      mem_percent: 18,
+      disk_percent: 36,
+      uptime_seconds: 9 * 60 * 60,
+      rule_count: 8,
+      demo_traffic: 128.6 * gb,
+      demo_speed: { up: 820 * 1024, down: 1.4 * mb },
+      demo_info: '4 Cores · 8 GB · 80 GB',
+      online_since: new Date(now - 9 * 60 * 60 * 1000).toISOString(),
+      last_heartbeat: new Date(now - 8 * 1000).toISOString(),
+    },
+    {
+      id: 'demo-ingress-guangzhou',
+      fake: true,
+      name: '广州入口 · B2',
+      role: 'ingress',
+      ip: '203.0.113.35',
+      online: true,
+      os: 'Debian 12',
+      cpu_percent: 32,
+      mem_percent: 44,
+      disk_percent: 51,
+      uptime_seconds: 2 * 24 * 60 * 60 + 41 * 60,
+      rule_count: 13,
+      demo_traffic: 438.2 * gb,
+      demo_speed: { up: 3.8 * mb, down: 5.6 * mb },
+      demo_info: '8 Cores · 16 GB · 160 GB',
+      online_since: new Date(now - 2 * 24 * 60 * 60 * 1000 - 41 * 60 * 1000).toISOString(),
+      last_heartbeat: new Date(now - 2 * 1000).toISOString(),
+    },
+    {
+      id: 'demo-ingress-hongkong',
+      fake: true,
+      name: '香港入口 · HK-Edge',
+      role: 'ingress',
+      ip: '203.0.113.49',
+      online: true,
+      os: 'Ubuntu 24.04',
+      cpu_percent: 61,
+      mem_percent: 57,
+      disk_percent: 73,
+      uptime_seconds: 16 * 60 * 60,
+      rule_count: 21,
+      demo_traffic: 1.82 * 1024 * gb,
+      demo_speed: { up: 9.2 * mb, down: 12.7 * mb },
+      demo_info: '16 Cores · 32 GB · 320 GB',
+      online_since: new Date(now - 16 * 60 * 60 * 1000).toISOString(),
+      last_heartbeat: new Date(now - 4 * 1000).toISOString(),
+    },
+    {
+      id: 'demo-ingress-offline',
+      fake: true,
+      name: '东京入口 · 维护中',
+      role: 'ingress',
+      ip: '203.0.113.78',
+      online: false,
+      os: 'Rocky Linux 9',
+      cpu_percent: 0,
+      mem_percent: 0,
+      disk_percent: 42,
+      uptime_seconds: 0,
+      rule_count: 5,
+      demo_traffic: 64.8 * gb,
+      demo_speed: { up: 0, down: 0 },
+      demo_info: '4 Cores · 8 GB · 120 GB',
+      online_since: '',
+      last_heartbeat: new Date(now - 22 * 60 * 1000).toISOString(),
+    },
+    {
+      id: 'demo-egress-singapore',
+      fake: true,
+      name: '新加坡出口 · SG-01',
+      role: 'egress',
+      ip: '198.51.100.12',
+      online: true,
+      os: 'Ubuntu 22.04',
+      cpu_percent: 12,
+      mem_percent: 23,
+      disk_percent: 28,
+      uptime_seconds: 7 * 60 * 60 + 12 * 60,
+      rule_count: 12,
+      demo_traffic: 612.4 * gb,
+      demo_speed: { up: 2.1 * mb, down: 4.9 * mb },
+      demo_info: '8 Cores · 16 GB · 200 GB',
+      online_since: new Date(now - 7 * 60 * 60 * 1000 - 12 * 60 * 1000).toISOString(),
+      last_heartbeat: new Date(now - 1 * 1000).toISOString(),
+    },
+    {
+      id: 'demo-egress-us',
+      fake: true,
+      name: '美国出口 · LA-Transit',
+      role: 'egress',
+      ip: '198.51.100.44',
+      online: true,
+      os: 'Debian 12',
+      cpu_percent: 46,
+      mem_percent: 62,
+      disk_percent: 67,
+      uptime_seconds: 4 * 24 * 60 * 60,
+      rule_count: 17,
+      demo_traffic: 2.4 * 1024 * gb,
+      demo_speed: { up: 7.8 * mb, down: 18.5 * mb },
+      demo_info: '16 Cores · 64 GB · 1 TB',
+      online_since: new Date(now - 4 * 24 * 60 * 60 * 1000).toISOString(),
+      last_heartbeat: new Date(now - 5 * 1000).toISOString(),
+    },
+    {
+      id: 'demo-egress-offline',
+      fake: true,
+      name: '德国出口 · 离线',
+      role: 'egress',
+      ip: '198.51.100.89',
+      online: false,
+      os: 'Ubuntu 20.04',
+      cpu_percent: 0,
+      mem_percent: 0,
+      disk_percent: 81,
+      uptime_seconds: 0,
+      rule_count: 4,
+      demo_traffic: 91.3 * gb,
+      demo_speed: { up: 0, down: 0 },
+      demo_info: '4 Cores · 8 GB · 100 GB',
+      online_since: '',
+      last_heartbeat: new Date(now - 2 * 60 * 60 * 1000).toISOString(),
+    },
+  ];
+}
 </script>
 
 <style>
@@ -462,7 +735,13 @@ function machineOnlineTime(machine, now) {
 }
 
 .machines-page .machines-header {
-  align-items: flex-start;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.machines-page .toolbar {
+  width: 100%;
+  justify-content: flex-end;
 }
 
 .machines-page .section-title {
@@ -478,7 +757,8 @@ function machineOnlineTime(machine, now) {
 }
 
 .machines-page .search-input {
-  width: 260px;
+  width: 300px;
+  margin-right: auto;
 }
 
 .machines-page .machine-groups {
@@ -491,7 +771,8 @@ function machineOnlineTime(machine, now) {
 .machines-page .group-title-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
+  gap: 10px;
   margin-bottom: 14px;
 }
 
@@ -504,11 +785,12 @@ function machineOnlineTime(machine, now) {
 .machines-page .group-count {
   color: #72829d;
   font-size: 13px;
+  transform: translateY(1px);
 }
 
 .machines-page .machine-card-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(260px, 1fr));
+  grid-template-columns: repeat(4, minmax(190px, 1fr));
   gap: 16px;
 }
 
@@ -591,9 +873,7 @@ function machineOnlineTime(machine, now) {
 }
 
 .machines-page .compact-metrics {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  display: block;
   margin-top: 16px;
 }
 
@@ -695,9 +975,9 @@ function machineOnlineTime(machine, now) {
   background: #f59e0b;
 }
 
-@media (max-width: 1380px) {
+@media (max-width: 1100px) {
   .machines-page .machine-card-grid {
-    grid-template-columns: repeat(2, minmax(260px, 1fr));
+    grid-template-columns: repeat(2, minmax(220px, 1fr));
   }
 }
 
@@ -709,6 +989,10 @@ function machineOnlineTime(machine, now) {
   .machines-page .toolbar,
   .machines-page .search-input {
     width: 100%;
+  }
+
+  .machines-page .search-input {
+    margin-right: 0;
   }
 
   .machines-page .machine-card-grid {

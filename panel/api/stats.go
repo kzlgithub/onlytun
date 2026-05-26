@@ -16,6 +16,7 @@ type heartbeatRequest struct {
 	CPUPercent  float64 `json:"cpu_percent"`
 	MemPercent  float64 `json:"mem_percent"`
 	DiskPercent float64 `json:"disk_percent"`
+	UptimeSec   uint64  `json:"uptime_seconds"`
 }
 
 type statsRequest struct {
@@ -61,7 +62,7 @@ func (h *Handler) AgentHeartbeat(c *gin.Context) {
 		ip = ClientIP(c)
 	}
 
-	if err := h.Machines.UpdateHeartbeat(machine, req.Role, ip, req.CPUPercent, req.MemPercent, req.DiskPercent); err != nil {
+	if err := h.Machines.UpdateHeartbeat(machine, req.Role, ip, req.CPUPercent, req.MemPercent, req.DiskPercent, req.UptimeSec); err != nil {
 		status := http.StatusInternalServerError
 		if errors.Is(err, service.ErrInvalidRole) {
 			status = http.StatusBadRequest

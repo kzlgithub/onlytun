@@ -267,10 +267,12 @@ func buildInstallCommand(baseURL, role, token string, tunnelPort int) string {
 	_ = tunnelPort
 	escapedBaseURL := shellQuote(baseURL)
 	escapedToken := shellQuote(token)
-	return fmt.Sprintf(`bash <(curl -fsSL https://raw.githubusercontent.com/kzlgithub/onlytun/main/scripts/install.sh) \
-  --token %s \
-  --role %s \
-  --panel %s`, escapedToken, role, escapedBaseURL)
+	return fmt.Sprintf(
+		"bash <(curl -fsSL https://raw.githubusercontent.com/kzlgithub/onlytun/main/scripts/install.sh) --token %s --role %s --panel %s",
+		escapedToken,
+		role,
+		escapedBaseURL,
+	)
 }
 
 func shellQuote(value string) string {

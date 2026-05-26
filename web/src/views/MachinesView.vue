@@ -6,11 +6,14 @@
           <div>
             <h3 style="margin: 0">隧道机列表</h3>
           </div>
-          <el-button :loading="loading" @click="loadData">立即刷新</el-button>
+          <div class="toolbar">
+            <span v-if="refreshing" class="refresh-hint">正在更新</span>
+            <el-button :loading="manualRefreshing" @click="manualRefresh">立即刷新</el-button>
+          </div>
         </div>
       </template>
 
-      <el-table :data="machineStore.machines" v-loading="loading">
+      <el-table :data="machineStore.machines" v-loading="initialLoading" row-key="id">
         <el-table-column prop="name" label="机器名称" min-width="170" />
         <el-table-column label="角色" width="110">
           <template #default="{ row }">
@@ -77,16 +80,48 @@ import { useMachineStore } from '../stores/machine';
 import { formatDateTime, formatRelativeTime, roleLabel } from '../utils/format';
 
 const machineStore = useMachineStore();
-const loading = ref(false);
+const initialLoading = ref(false);
+const manualRefreshing = ref(false);
+const refreshing = ref(false);
 let timer;
+let loadingPromise = null;
 
-async function loadData() {
-  loading.value = true;
-  try {
-    await Promise.all([machineStore.fetchMachines(), machineStore.fetchInstallCommands()]);
-  } finally {
-    loading.value = false;
+async function loadData(options = {}) {
+  if (loadingPromise) {
+    if (options.manual) {
+      manualRefreshing.value = true;
+      try {
+        await loadingPromise;
+      } finally {
+        manualRefreshing.value = false;
+      }
+    }
+    return loadingPromise;
   }
+
+  const { initial = false, manual = false } = options;
+  initialLoading.value = initial;
+  manualRefreshing.value = manual;
+  refreshing.value = !initial && !manual;
+
+  const tasks = [machineStore.fetchMachines()];
+  if (initial || manual) {
+    tasks.push(machineStore.fetchInstallCommands());
+  }
+
+  loadingPromise = Promise.all(tasks);
+  try {
+    await loadingPromise;
+  } finally {
+    initialLoading.value = false;
+    manualRefreshing.value = false;
+    refreshing.value = false;
+    loadingPromise = null;
+  }
+}
+
+function manualRefresh() {
+  return loadData({ manual: true });
 }
 
 async function handleRename(machine) {
@@ -119,7 +154,7 @@ async function handleDelete(machine) {
 }
 
 onMounted(async () => {
-  await loadData();
+  await loadData({ initial: true });
   timer = window.setInterval(loadData, 30000);
 });
 
@@ -127,3 +162,10 @@ onBeforeUnmount(() => {
   window.clearInterval(timer);
 });
 </script>
+
+<style scoped>
+.refresh-hint {
+  font-size: 13px;
+  color: #8a99ad;
+}
+</style>

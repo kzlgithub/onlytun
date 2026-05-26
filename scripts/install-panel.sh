@@ -9,7 +9,7 @@ NC='\033[0m'
 
 PANEL_PORT="8080"
 PANEL_PASSWORD=""
-UNINSTALL="false"
+ACTION=""
 
 PANEL_BIN="/usr/local/bin/onlytun-panel"
 CONFIG_DIR="/etc/onlytun"
@@ -21,6 +21,7 @@ usage() {
   cat <<EOF
 Usage:
   bash install-panel.sh --port 8080 --password YOUR_PASSWORD
+  bash install-panel.sh --install --port 8080 --password YOUR_PASSWORD
   bash install-panel.sh --uninstall
 EOF
 }
@@ -63,8 +64,12 @@ parse_args() {
         PANEL_PASSWORD="${2:-}"
         shift 2
         ;;
+      --install)
+        ACTION="install"
+        shift
+        ;;
       --uninstall)
-        UNINSTALL="true"
+        ACTION="uninstall"
         shift
         ;;
       -h|--help)
@@ -77,10 +82,32 @@ parse_args() {
     esac
   done
 
-  if [ "$UNINSTALL" = "true" ]; then
+  if [ "$ACTION" = "uninstall" ]; then
+    return
+  fi
+}
+
+prompt_action_if_missing() {
+  if [ -n "$ACTION" ]; then
+    return
+  fi
+  [ -t 0 ] || ACTION="install"
+  if [ -n "$ACTION" ]; then
     return
   fi
 
+  while true; do
+    printf "请选择操作：1. 安装  2. 卸载 [1/2]: "
+    read -r choice
+    case "$choice" in
+      1) ACTION="install"; break ;;
+      2) ACTION="uninstall"; break ;;
+      *) warn "请输入 1 或 2。" ;;
+    esac
+  done
+}
+
+validate_install_args() {
   printf '%s' "$PANEL_PORT" | grep -Eq '^[0-9]+$' || fail "--port must be a number."
   [ "$PANEL_PORT" -ge 1 ] && [ "$PANEL_PORT" -le 65535 ] || fail "--port must be between 1 and 65535."
 }
@@ -277,11 +304,13 @@ main() {
   require_command awk
 
   parse_args "$@"
-  if [ "$UNINSTALL" = "true" ]; then
+  prompt_action_if_missing
+  if [ "$ACTION" = "uninstall" ]; then
     uninstall_panel
     exit 0
   fi
 
+  validate_install_args
   require_command stty
   detect_os
   detect_arch

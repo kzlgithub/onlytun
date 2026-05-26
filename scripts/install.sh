@@ -11,7 +11,7 @@ ROLE=""
 PANEL_URL=""
 INSTALL_TOKEN=""
 MACHINE_NAME=""
-UNINSTALL="false"
+ACTION=""
 
 AGENT_BIN="/usr/local/bin/onlytun-agent"
 CONFIG_DIR="/etc/onlytun"
@@ -24,6 +24,7 @@ usage() {
   cat <<EOF
 Usage:
   bash install.sh --token INSTALL_TOKEN --role ingress|egress --panel http://host:port
+  bash install.sh --install --token INSTALL_TOKEN --role ingress|egress --panel http://host:port
   bash install.sh --uninstall
 
 Optional non-interactive flags:
@@ -77,8 +78,12 @@ parse_args() {
         MACHINE_NAME="${2:-}"
         shift 2
         ;;
+      --install)
+        ACTION="install"
+        shift
+        ;;
       --uninstall)
-        UNINSTALL="true"
+        ACTION="uninstall"
         shift
         ;;
       -h|--help)
@@ -91,14 +96,44 @@ parse_args() {
     esac
   done
 
-  if [ "$UNINSTALL" = "true" ]; then
+  if [ "$ACTION" = "uninstall" ]; then
+    return
+  fi
+}
+
+prompt_action_if_missing() {
+  if [ -n "$ACTION" ]; then
+    return
+  fi
+  [ -t 0 ] || ACTION="install"
+  if [ -n "$ACTION" ]; then
     return
   fi
 
+  while true; do
+    printf "请选择操作：1. 安装  2. 卸载 [1/2]: "
+    read -r choice
+    case "$choice" in
+      1) ACTION="install"; break ;;
+      2) ACTION="uninstall"; break ;;
+      *) warn "请输入 1 或 2。" ;;
+    esac
+  done
+}
+
+validate_install_args() {
   [ -n "$INSTALL_TOKEN" ] || fail "--token is required."
 }
 
 prompt_if_missing() {
+  if [ -z "$INSTALL_TOKEN" ]; then
+    [ -t 0 ] || fail "--token is required in non-interactive mode."
+    while [ -z "$INSTALL_TOKEN" ]; do
+      printf "Install token: "
+      read -r INSTALL_TOKEN
+    done
+  fi
+
   if [ -z "$ROLE" ]; then
     [ -t 0 ] || fail "--role is required in non-interactive mode."
     while true; do
@@ -317,12 +352,14 @@ main() {
   require_command awk
 
   parse_args "$@"
-  if [ "$UNINSTALL" = "true" ]; then
+  prompt_action_if_missing
+  if [ "$ACTION" = "uninstall" ]; then
     uninstall_agent
     exit 0
   fi
 
   prompt_if_missing
+  validate_install_args
   detect_os
   detect_arch
   prepare_dirs

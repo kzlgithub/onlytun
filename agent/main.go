@@ -24,7 +24,6 @@ import (
 const (
 	defaultConfigPath = "/etc/onlytun/cache.json"
 	configSyncPeriod  = 60 * time.Second
-	egressStatsRuleID = "egress"
 )
 
 type panelConfigResponse struct {
@@ -175,7 +174,6 @@ func (a *agentRuntime) fetchPanelRules(ctx context.Context) ([]config.RuleConfig
 
 	query := u.Query()
 	query.Set("machine_id", a.cfg.MachineID)
-	query.Set("token", a.cfg.Token)
 	u.RawQuery = query.Encode()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
@@ -320,7 +318,6 @@ func (a *agentRuntime) applyEgressRules() error {
 	if a.egress != nil {
 		logInfof("restarting egress listener on %s", listenAddr)
 		a.egress.Stop()
-		a.reporter.UnregisterStatsSource(egressStatsRuleID)
 		a.egress = nil
 		a.egressListenAddr = ""
 	}
@@ -335,7 +332,6 @@ func (a *agentRuntime) applyEgressRules() error {
 
 	a.egress = egress
 	a.egressListenAddr = listenAddr
-	a.reporter.RegisterStatsSource(egressStatsRuleID, egress.GetStats)
 	logInfof("egress listener started on %s", listenAddr)
 	return nil
 }
@@ -354,7 +350,6 @@ func (a *agentRuntime) shutdown() {
 	if a.egress != nil {
 		logInfof("stopping egress listener")
 		a.egress.Stop()
-		a.reporter.UnregisterStatsSource(egressStatsRuleID)
 		a.egress = nil
 		a.egressListenAddr = ""
 	}

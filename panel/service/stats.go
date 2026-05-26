@@ -51,12 +51,13 @@ func (s *StatsService) IngestStats(machine *paneldb.Machine, input AgentStatsInp
 	}
 
 	hour := time.Now().UTC().Truncate(time.Hour)
+	rules, err := s.authorizedRulesByID(machine, input.Stats)
+	if err != nil {
+		return err
+	}
+
 	for _, item := range input.Stats {
-		var rule paneldb.ForwardRule
-		if err := s.db.Take(&rule, "id = ?", item.RuleID).Error; err != nil {
-			continue
-		}
-		if rule.IngressMachineID != machine.ID && rule.EgressMachineID != machine.ID {
+		if _, ok := rules[item.RuleID]; !ok {
 			continue
 		}
 
@@ -80,6 +81,41 @@ func (s *StatsService) IngestStats(machine *paneldb.Machine, input AgentStatsInp
 	}
 
 	return nil
+}
+
+func (s *StatsService) authorizedRulesByID(machine *paneldb.Machine, items []AgentStatItem) (map[string]paneldb.ForwardRule, error) {
+	rulesByID := make(map[string]paneldb.ForwardRule)
+	if len(items) == 0 {
+		return rulesByID, nil
+	}
+
+	ids := make([]string, 0, len(items))
+	seen := make(map[string]struct{}, len(items))
+	for _, item := range items {
+		if item.RuleID == "" {
+			continue
+		}
+		if _, ok := seen[item.RuleID]; ok {
+			continue
+		}
+		seen[item.RuleID] = struct{}{}
+		ids = append(ids, item.RuleID)
+	}
+	if len(ids) == 0 {
+		return rulesByID, nil
+	}
+
+	var rules []paneldb.ForwardRule
+	if err := s.db.Where("id IN ?", ids).Find(&rules).Error; err != nil {
+		return nil, err
+	}
+
+	for _, rule := range rules {
+		if rule.IngressMachineID == machine.ID || rule.EgressMachineID == machine.ID {
+			rulesByID[rule.ID] = rule
+		}
+	}
+	return rulesByID, nil
 }
 
 func (s *StatsService) LatestStatsForRules(ruleIDs []string) (map[string]RuleRealtimeStat, error) {

@@ -54,7 +54,7 @@ func main() {
 	handler := api.NewHandler(machineService, ruleService, statsService, password)
 
 	router := gin.New()
-	router.Use(gin.Logger(), gin.Recovery())
+	router.Use(gin.LoggerWithConfig(gin.LoggerConfig{Skip: skipAccessLog}), gin.Recovery())
 	if gin.Mode() != gin.ReleaseMode {
 		router.Use(corsMiddleware())
 	}
@@ -110,6 +110,15 @@ func main() {
 	log.Printf("[INFO] panel listening on :%d", port)
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("listen failed: %v", err)
+	}
+}
+
+func skipAccessLog(c *gin.Context) bool {
+	switch c.Request.URL.Path {
+	case "/api/agent/heartbeat", "/api/agent/stats", "/api/agent/config":
+		return true
+	default:
+		return false
 	}
 }
 

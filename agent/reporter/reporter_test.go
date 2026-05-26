@@ -83,6 +83,39 @@ func TestReporterSendStatsPostsRegisteredSources(t *testing.T) {
 	}
 }
 
+func TestReporterCollectStatsReportsDeltas(t *testing.T) {
+	var up, down int64 = 100, 250
+	r := NewReporter("http://127.0.0.1", "machine-1", "ingress", "token-1")
+	r.RegisterStatsSource("rule-1", func() Stats {
+		return tunnel.Stats{BytesUp: up, BytesDown: down, ActiveConns: 3}
+	})
+
+	first := r.collectStats()
+	if len(first) != 1 {
+		t.Fatalf("expected one stats item, got %d", len(first))
+	}
+	if first[0].BytesUp != 100 || first[0].BytesDown != 250 || first[0].ActiveConns != 3 {
+		t.Fatalf("unexpected first stats item: %+v", first[0])
+	}
+
+	up = 175
+	down = 400
+	second := r.collectStats()
+	if len(second) != 1 {
+		t.Fatalf("expected one stats item, got %d", len(second))
+	}
+	if second[0].BytesUp != 75 || second[0].BytesDown != 150 || second[0].ActiveConns != 3 {
+		t.Fatalf("unexpected delta stats item: %+v", second[0])
+	}
+
+	up = 20
+	down = 30
+	afterReset := r.collectStats()
+	if afterReset[0].BytesUp != 20 || afterReset[0].BytesDown != 30 {
+		t.Fatalf("expected counter reset to report current values, got %+v", afterReset[0])
+	}
+}
+
 func TestReporterSendHeartbeatPostsPayload(t *testing.T) {
 	type capturedRequest struct {
 		Path string

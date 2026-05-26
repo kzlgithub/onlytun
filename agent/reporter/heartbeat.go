@@ -37,6 +37,7 @@ type Reporter struct {
 
 	mu      sync.RWMutex
 	sources map[string]func() Stats
+	last    map[string]Stats
 }
 
 // NewReporter 创建 Reporter。
@@ -50,6 +51,7 @@ func NewReporter(panelURL, machineID, role, token string) *Reporter {
 			Timeout: 10 * time.Second,
 		},
 		sources: make(map[string]func() Stats),
+		last:    make(map[string]Stats),
 	}
 }
 

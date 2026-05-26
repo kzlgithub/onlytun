@@ -49,6 +49,14 @@ func TestAgentRuntimeSyncConfigStartsAndStopsIngressRules(t *testing.T) {
 		rules   []config.RuleConfig
 	)
 	panel := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("token"); got != "" {
+			http.Error(w, "token must not be sent in query", http.StatusBadRequest)
+			return
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer panel-token" {
+			http.Error(w, "missing machine token header", http.StatusUnauthorized)
+			return
+		}
 		panelMu.Lock()
 		defer panelMu.Unlock()
 		_ = json.NewEncoder(w).Encode(panelConfigResponse{Rules: rules})

@@ -35,6 +35,7 @@ func (r *Reporter) RegisterStatsSource(ruleID string, getter func() Stats) {
 func (r *Reporter) UnregisterStatsSource(ruleID string) {
 	r.mu.Lock()
 	delete(r.sources, ruleID)
+	delete(r.last, ruleID)
 	r.mu.Unlock()
 }
 
@@ -80,13 +81,29 @@ func (r *Reporter) collectStats() []statsItem {
 	items := make([]statsItem, 0, len(keys))
 	for i, ruleID := range keys {
 		stats := getters[i]()
+		r.mu.Lock()
+		previous, seen := r.last[ruleID]
+		deltaUp, deltaDown := stats.BytesUp, stats.BytesDown
+		if seen {
+			deltaUp = nonNegativeDelta(stats.BytesUp, previous.BytesUp)
+			deltaDown = nonNegativeDelta(stats.BytesDown, previous.BytesDown)
+		}
+		r.last[ruleID] = stats
+		r.mu.Unlock()
 		items = append(items, statsItem{
 			RuleID:      ruleID,
-			BytesUp:     stats.BytesUp,
-			BytesDown:   stats.BytesDown,
+			BytesUp:     deltaUp,
+			BytesDown:   deltaDown,
 			ActiveConns: stats.ActiveConns,
 		})
 	}
 
 	return items
+}
+
+func nonNegativeDelta(current, previous int64) int64 {
+	if current < previous {
+		return current
+	}
+	return current - previous
 }

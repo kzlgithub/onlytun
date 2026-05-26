@@ -7,13 +7,14 @@
             <h3 style="margin: 0">转发规则</h3>
           </div>
           <div class="toolbar">
-            <el-button :loading="loading" @click="loadData">立即刷新</el-button>
+            <span v-if="refreshing" class="refresh-hint">正在更新</span>
+            <el-button :loading="manualRefreshing" @click="manualRefresh">立即刷新</el-button>
             <el-button type="primary" @click="openCreateDialog">新增规则</el-button>
           </div>
         </div>
       </template>
 
-      <el-table :data="ruleStore.rules" v-loading="loading">
+      <el-table :data="ruleStore.rules" v-loading="initialLoading" row-key="id">
         <el-table-column label="规则名称" min-width="180">
           <template #default="{ row }">
             <router-link :to="`/rules/${row.id}/stats`" class="rule-link">
@@ -95,11 +96,14 @@ import { formatBytes, formatSpeed, protocolLabel } from '../utils/format';
 const machineStore = useMachineStore();
 const ruleStore = useRuleStore();
 
-const loading = ref(false);
+const initialLoading = ref(false);
+const manualRefreshing = ref(false);
+const refreshing = ref(false);
 const dialogVisible = ref(false);
 const editingRule = ref(null);
 const submitting = ref(false);
 let timer;
+let loadingPromise = null;
 
 function buildRoutePath(rule) {
   const ingress = machineStore.machineMap[rule.ingress_machine_id];
@@ -109,16 +113,41 @@ function buildRoutePath(rule) {
   return `${ingressName}:${rule.ingress_port} → ${egressName} → ${rule.target_addr}:${rule.target_port}`;
 }
 
-async function loadData() {
-  loading.value = true;
-  try {
-    await Promise.all([
-      machineStore.fetchMachines(),
-      ruleStore.fetchRules({ includeDayTotals: true }),
-    ]);
-  } finally {
-    loading.value = false;
+async function loadData(options = {}) {
+  if (loadingPromise) {
+    if (options.manual) {
+      manualRefreshing.value = true;
+      try {
+        await loadingPromise;
+      } finally {
+        manualRefreshing.value = false;
+      }
+    }
+    return loadingPromise;
   }
+
+  const { initial = false, manual = false } = options;
+  initialLoading.value = initial;
+  manualRefreshing.value = manual;
+  refreshing.value = !initial && !manual;
+
+  loadingPromise = Promise.all([
+    machineStore.fetchMachines(),
+    ruleStore.fetchRules({ includeDayTotals: true }),
+  ]);
+
+  try {
+    await loadingPromise;
+  } finally {
+    initialLoading.value = false;
+    manualRefreshing.value = false;
+    refreshing.value = false;
+    loadingPromise = null;
+  }
+}
+
+function manualRefresh() {
+  return loadData({ manual: true });
 }
 
 function openCreateDialog() {
@@ -172,8 +201,8 @@ async function deleteRule(rule) {
 }
 
 onMounted(async () => {
-  await loadData();
-  timer = window.setInterval(loadData, 5000);
+  await loadData({ initial: true });
+  timer = window.setInterval(() => loadData(), 5000);
 });
 
 onBeforeUnmount(() => {
@@ -190,5 +219,10 @@ onBeforeUnmount(() => {
 .path-line {
   color: #3c4a61;
   line-height: 1.6;
+}
+
+.refresh-hint {
+  font-size: 13px;
+  color: #8a99ad;
 }
 </style>

@@ -9,6 +9,26 @@ function normalizeRealtime(rule) {
   };
 }
 
+function isSameValue(left, right) {
+  if (left === right) {
+    return true;
+  }
+  if (typeof left === 'object' || typeof right === 'object') {
+    return JSON.stringify(left) === JSON.stringify(right);
+  }
+  return false;
+}
+
+function hasRuleChanged(current, incoming) {
+  const keys = new Set([...Object.keys(current), ...Object.keys(incoming)]);
+  for (const key of keys) {
+    if (!isSameValue(current[key], incoming[key])) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export const useRuleStore = defineStore('rules', {
   state: () => ({
     rules: [],
@@ -35,7 +55,7 @@ export const useRuleStore = defineStore('rules', {
         const { data } = await ruleApi.list();
         const incomingRules = data.rules || [];
         this.updateRateMap(incomingRules);
-        this.rules = incomingRules;
+        this.mergeRules(incomingRules);
         if (includeDayTotals && incomingRules.length > 0) {
           await this.fetchTodayTotals(incomingRules.map((item) => item.id));
         }
@@ -65,8 +85,33 @@ export const useRuleStore = defineStore('rules', {
         nextSnapshots[rule.id] = current;
       }
 
-      this.rateMap = nextRateMap;
-      this.snapshots = nextSnapshots;
+        this.rateMap = nextRateMap;
+        this.snapshots = nextSnapshots;
+    },
+    mergeRules(incomingRules) {
+      const currentById = new Map(this.rules.map((item) => [item.id, item]));
+      let structureChanged = this.rules.length !== incomingRules.length;
+
+      const nextRules = incomingRules.map((incoming, index) => {
+        const current = currentById.get(incoming.id);
+        if (!current) {
+          structureChanged = true;
+          return incoming;
+        }
+
+        if (this.rules[index]?.id !== incoming.id) {
+          structureChanged = true;
+        }
+
+        if (hasRuleChanged(current, incoming)) {
+          Object.assign(current, incoming);
+        }
+        return current;
+      });
+
+      if (structureChanged) {
+        this.rules = nextRules;
+      }
     },
     async fetchTodayTotals(ruleIds) {
       const results = await Promise.all(

@@ -135,6 +135,17 @@ func main() {
 }
 
 func skipAccessLog(c *gin.Context) bool {
+	if c.Request.Method == http.MethodGet {
+		switch c.Request.URL.Path {
+		case "/api/machines", "/api/rules", "/api/panel/metrics", "/api/panel/version":
+			return true
+		default:
+			if strings.HasPrefix(c.Request.URL.Path, "/api/stats/") {
+				return true
+			}
+		}
+	}
+
 	switch c.Request.URL.Path {
 	case "/api/agent/heartbeat", "/api/agent/stats", "/api/agent/config", "/api/agent/update-claim", "/api/agent/update-result":
 		return true

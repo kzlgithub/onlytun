@@ -31,6 +31,10 @@
           <el-icon><Connection /></el-icon>
           <span>转发规则</span>
         </el-menu-item>
+        <el-menu-item index="/settings">
+          <el-icon><Setting /></el-icon>
+          <span>设置</span>
+        </el-menu-item>
       </el-menu>
 
       <el-button class="sidebar-logout" type="danger" plain @click="handleLogout">

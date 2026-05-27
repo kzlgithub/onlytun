@@ -26,15 +26,16 @@ type RuleService struct {
 }
 
 type RuleInput struct {
-	Name             string `json:"name"`
-	IngressMachineID string `json:"ingress_machine_id"`
-	IngressPort      int    `json:"ingress_port"`
-	EgressMachineID  string `json:"egress_machine_id"`
-	TargetAddr       string `json:"target_addr"`
-	TargetPort       int    `json:"target_port"`
-	Protocol         string `json:"protocol"`
-	Enabled          bool   `json:"enabled"`
-	Remark           string `json:"remark"`
+	Name              string `json:"name"`
+	IngressMachineID  string `json:"ingress_machine_id"`
+	IngressPort       int    `json:"ingress_port"`
+	EgressMachineID   string `json:"egress_machine_id"`
+	TargetAddr        string `json:"target_addr"`
+	TargetPort        int    `json:"target_port"`
+	Protocol          string `json:"protocol"`
+	TrafficLimitBytes int64  `json:"traffic_limit_bytes"`
+	Enabled           bool   `json:"enabled"`
+	Remark            string `json:"remark"`
 }
 
 type RuleRealtimeStat struct {
@@ -45,7 +46,9 @@ type RuleRealtimeStat struct {
 
 type RuleView struct {
 	paneldb.ForwardRule
-	RealtimeStat RuleRealtimeStat `json:"realtime_stat"`
+	RealtimeStat  RuleRealtimeStat `json:"realtime_stat"`
+	TotalBytes    int64            `json:"total_bytes"`
+	LimitExceeded bool             `json:"limit_exceeded"`
 }
 
 func NewRuleService(gdb *gorm.DB, tunnelPort int) *RuleService {
@@ -80,7 +83,19 @@ func (s *RuleService) UpdateRule(id string, input RuleInput) (*paneldb.ForwardRu
 	if err != nil {
 		return nil, err
 	}
-	if err := s.db.Model(&paneldb.ForwardRule{}).Where("id = ?", id).Updates(rule).Error; err != nil {
+	updates := map[string]any{
+		"name":                rule.Name,
+		"ingress_machine_id":  rule.IngressMachineID,
+		"ingress_port":        rule.IngressPort,
+		"egress_machine_id":   rule.EgressMachineID,
+		"target_addr":         rule.TargetAddr,
+		"target_port":         rule.TargetPort,
+		"protocol":            rule.Protocol,
+		"traffic_limit_bytes": rule.TrafficLimitBytes,
+		"enabled":             rule.Enabled,
+		"remark":              rule.Remark,
+	}
+	if err := s.db.Model(&paneldb.ForwardRule{}).Where("id = ?", id).Updates(updates).Error; err != nil {
 		return nil, err
 	}
 	return s.GetRule(id)
@@ -133,6 +148,14 @@ func (s *RuleService) EnabledRulesForMachine(machine *paneldb.Machine) ([]AgentR
 
 	configs := make([]AgentRuleConfig, 0, len(rules))
 	for _, rule := range rules {
+		exceeded, err := s.ruleLimitExceeded(rule)
+		if err != nil {
+			return nil, err
+		}
+		if exceeded {
+			continue
+		}
+
 		var egress paneldb.Machine
 		if err := s.db.Take(&egress, "id = ?", rule.EgressMachineID).Error; err != nil {
 			return nil, err
@@ -142,11 +165,12 @@ func (s *RuleService) EnabledRulesForMachine(machine *paneldb.Machine) ([]AgentR
 		}
 
 		configs = append(configs, AgentRuleConfig{
-			RuleID:     rule.ID,
-			ListenAddr: net.JoinHostPort("0.0.0.0", strconv.Itoa(rule.IngressPort)),
-			Protocol:   rule.Protocol,
-			EgressAddr: net.JoinHostPort(egress.IP, strconv.Itoa(s.tunnelPort)),
-			TargetAddr: net.JoinHostPort(rule.TargetAddr, strconv.Itoa(rule.TargetPort)),
+			RuleID:            rule.ID,
+			ListenAddr:        net.JoinHostPort("0.0.0.0", strconv.Itoa(rule.IngressPort)),
+			Protocol:          rule.Protocol,
+			EgressAddr:        net.JoinHostPort(egress.IP, strconv.Itoa(s.tunnelPort)),
+			TargetAddr:        net.JoinHostPort(rule.TargetAddr, strconv.Itoa(rule.TargetPort)),
+			TrafficLimitBytes: rule.TrafficLimitBytes,
 		})
 	}
 
@@ -164,6 +188,9 @@ func (s *RuleService) buildRule(id string, input RuleInput) (*paneldb.ForwardRul
 	if input.IngressPort <= 0 || input.IngressPort > 65535 || input.TargetPort <= 0 || input.TargetPort > 65535 {
 		return nil, fmt.Errorf("service: invalid port")
 	}
+	if input.TrafficLimitBytes < 0 {
+		return nil, fmt.Errorf("service: invalid traffic limit")
+	}
 	if strings.TrimSpace(input.TargetAddr) == "" {
 		return nil, ErrInvalidTarget
 	}
@@ -178,15 +205,60 @@ func (s *RuleService) buildRule(id string, input RuleInput) (*paneldb.ForwardRul
 	}
 
 	return &paneldb.ForwardRule{
-		ID:               id,
-		Name:             strings.TrimSpace(input.Name),
-		IngressMachineID: input.IngressMachineID,
-		IngressPort:      input.IngressPort,
-		EgressMachineID:  input.EgressMachineID,
-		TargetAddr:       strings.TrimSpace(input.TargetAddr),
-		TargetPort:       input.TargetPort,
-		Protocol:         protocol,
-		Enabled:          input.Enabled,
-		Remark:           strings.TrimSpace(input.Remark),
+		ID:                id,
+		Name:              strings.TrimSpace(input.Name),
+		IngressMachineID:  input.IngressMachineID,
+		IngressPort:       input.IngressPort,
+		EgressMachineID:   input.EgressMachineID,
+		TargetAddr:        strings.TrimSpace(input.TargetAddr),
+		TargetPort:        input.TargetPort,
+		Protocol:          protocol,
+		TrafficLimitBytes: input.TrafficLimitBytes,
+		Enabled:           input.Enabled,
+		Remark:            strings.TrimSpace(input.Remark),
 	}, nil
+}
+
+func (s *RuleService) ruleLimitExceeded(rule paneldb.ForwardRule) (bool, error) {
+	if rule.TrafficLimitBytes <= 0 {
+		return false, nil
+	}
+	total, err := s.totalTrafficForRule(rule.ID)
+	if err != nil {
+		return false, err
+	}
+	return total >= rule.TrafficLimitBytes, nil
+}
+
+func (s *RuleService) totalTrafficForRule(ruleID string) (int64, error) {
+	var total int64
+	err := s.db.Model(&paneldb.TrafficStat{}).
+		Select("COALESCE(SUM(bytes_up + bytes_down), 0)").
+		Where("rule_id = ?", ruleID).
+		Scan(&total).Error
+	return total, err
+}
+
+func (s *RuleService) TotalTrafficForRules(ruleIDs []string) (map[string]int64, error) {
+	totals := make(map[string]int64, len(ruleIDs))
+	if len(ruleIDs) == 0 {
+		return totals, nil
+	}
+
+	type row struct {
+		RuleID string
+		Total  int64
+	}
+	var rows []row
+	if err := s.db.Model(&paneldb.TrafficStat{}).
+		Select("rule_id, COALESCE(SUM(bytes_up + bytes_down), 0) AS total").
+		Where("rule_id IN ?", ruleIDs).
+		Group("rule_id").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	for _, item := range rows {
+		totals[item.RuleID] = item.Total
+	}
+	return totals, nil
 }

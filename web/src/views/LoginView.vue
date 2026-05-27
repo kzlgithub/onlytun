@@ -3,7 +3,10 @@
     <div class="login-backdrop"></div>
     <el-card class="login-card" shadow="never">
       <div class="login-head">
-        <div class="login-logo">OT</div>
+        <div class="login-logo brand-mark">
+          <span></span>
+          <span></span>
+        </div>
         <div>
           <h1>OnlyTun Panel</h1>
           <p>输入管理密码，进入私有隧道控制台</p>
@@ -91,13 +94,37 @@ async function handleLogin() {
 .login-logo {
   width: 60px;
   height: 60px;
-  border-radius: 20px;
-  display: grid;
-  place-items: center;
-  font-size: 24px;
-  font-weight: 800;
-  color: #132238;
-  background: linear-gradient(135deg, #d8efff, #86c4ff 65%, #dff7d2);
+  flex: 0 0 auto;
+}
+
+.brand-mark {
+  border-radius: 18px;
+  position: relative;
+  background: #f7fbff;
+  border: 1px solid rgba(31, 111, 235, 0.16);
+  box-shadow: 0 14px 30px rgba(31, 111, 235, 0.1);
+}
+
+.brand-mark span {
+  position: absolute;
+  display: block;
+  border-radius: 999px;
+}
+
+.brand-mark span:first-child {
+  width: 32px;
+  height: 14px;
+  left: 13px;
+  top: 16px;
+  background: #1f6feb;
+}
+
+.brand-mark span:last-child {
+  width: 14px;
+  height: 32px;
+  right: 13px;
+  bottom: 11px;
+  background: #46b389;
 }
 
 .login-head h1 {

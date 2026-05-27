@@ -51,7 +51,12 @@ func main() {
 	machineService := service.NewMachineService(gdb, tunnelPort)
 	ruleService := service.NewRuleService(gdb, tunnelPort)
 	statsService := service.NewStatsService(gdb)
-	handler := api.NewHandler(machineService, ruleService, statsService, password)
+	settingsService := service.NewSettingsService(gdb)
+	passwordHash, err := settingsService.AdminPasswordHash(password)
+	if err != nil {
+		log.Fatalf("load admin password failed: %v", err)
+	}
+	handler := api.NewHandler(machineService, ruleService, statsService, settingsService, passwordHash)
 
 	router := gin.New()
 	router.Use(gin.LoggerWithConfig(gin.LoggerConfig{Skip: skipAccessLog}), gin.Recovery())
@@ -75,6 +80,8 @@ func main() {
 	admin.DELETE("/rules/:id", handler.DeleteRule)
 	admin.PATCH("/rules/:id/toggle", handler.ToggleRule)
 	admin.GET("/stats/:rule_id", handler.GetRuleStats)
+	admin.GET("/panel/metrics", handler.GetPanelMetrics)
+	admin.POST("/settings/password", handler.ChangePassword)
 
 	agentGroup := apiGroup.Group("/agent")
 	agentGroup.POST("/register", handler.AgentRegister)

@@ -24,12 +24,20 @@ func (h *Handler) ListRules(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	totalsMap, err := h.Rules.TotalTrafficForRules(ids)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 
 	items := make([]service.RuleView, 0, len(rules))
 	for _, rule := range rules {
+		total := totalsMap[rule.ID]
 		items = append(items, service.RuleView{
-			ForwardRule:  rule,
-			RealtimeStat: statsMap[rule.ID],
+			ForwardRule:   rule,
+			RealtimeStat:  statsMap[rule.ID],
+			TotalBytes:    total,
+			LimitExceeded: rule.TrafficLimitBytes > 0 && total >= rule.TrafficLimitBytes,
 		})
 	}
 

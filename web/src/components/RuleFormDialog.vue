@@ -74,6 +74,17 @@
         </el-form-item>
       </div>
 
+      <el-form-item label="流量上限（GB，0 表示无限制）" prop="traffic_limit_gb">
+        <el-input-number
+          v-model="form.traffic_limit_gb"
+          :min="0"
+          :precision="2"
+          :step="10"
+          controls-position="right"
+          class="limit-input"
+        />
+      </el-form-item>
+
       <el-form-item label="备注" prop="remark">
         <el-input v-model="form.remark" type="textarea" :rows="3" placeholder="可选备注信息" />
       </el-form-item>
@@ -128,6 +139,7 @@ const defaultForm = () => ({
   target_addr: '',
   target_port: 1,
   protocol: 'tcp',
+  traffic_limit_gb: 0,
   remark: '',
 });
 
@@ -166,6 +178,7 @@ watch(
         target_addr: props.rule.target_addr || '',
         target_port: props.rule.target_port || 1,
         protocol: props.rule.protocol || 'tcp',
+        traffic_limit_gb: bytesToGB(props.rule.traffic_limit_bytes || 0),
         remark: props.rule.remark || '',
       });
     }
@@ -174,7 +187,18 @@ watch(
 
 async function handleSubmit() {
   await formRef.value.validate();
-  emit('submit', { ...form });
+  const payload = { ...form };
+  payload.traffic_limit_bytes = gbToBytes(payload.traffic_limit_gb);
+  delete payload.traffic_limit_gb;
+  emit('submit', payload);
+}
+
+function gbToBytes(value) {
+  return Math.round(Number(value || 0) * 1024 ** 3);
+}
+
+function bytesToGB(value) {
+  return Number((Number(value || 0) / 1024 ** 3).toFixed(2));
 }
 
 function detectTarget() {
@@ -372,6 +396,10 @@ function isValidHost(host) {
 :deep(.el-select),
 :deep(.el-input-number) {
   width: 100%;
+}
+
+.limit-input {
+  max-width: 220px;
 }
 
 :deep(.el-input__wrapper),

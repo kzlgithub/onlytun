@@ -40,6 +40,12 @@ const routes = [
         component: () => import('../views/RuleStatsView.vue'),
         meta: { title: '流量详情' },
       },
+      {
+        path: '/settings',
+        name: 'settings',
+        component: () => import('../views/SettingsView.vue'),
+        meta: { title: '设置' },
+      },
     ],
   },
 ];

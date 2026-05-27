@@ -10,7 +10,7 @@
               <span v-if="refreshing"> · 正在刷新</span>
             </p>
           </div>
-          <div class="toolbar">
+          <div class="toolbar rules-toolbar">
             <el-input
               v-model="keyword"
               class="search-input"
@@ -54,19 +54,15 @@
             />
           </template>
         </el-table-column>
-        <el-table-column label="实时上行速率" width="150">
-          <template #default="{ row }">
-            {{ formatSpeed(ruleStore.rateMap[row.id]?.up || 0) }}
-          </template>
-        </el-table-column>
-        <el-table-column label="实时下行速率" width="150">
-          <template #default="{ row }">
-            {{ formatSpeed(ruleStore.rateMap[row.id]?.down || 0) }}
-          </template>
-        </el-table-column>
         <el-table-column label="活跃连接数" width="120">
           <template #default="{ row }">
             {{ row.realtime_stat?.peak_conns || 0 }}
+          </template>
+        </el-table-column>
+        <el-table-column label="流量上限" width="150">
+          <template #default="{ row }">
+            <el-tag v-if="row.limit_exceeded" type="danger" effect="light" round>已超限</el-tag>
+            <span v-else>{{ row.traffic_limit_bytes > 0 ? formatBytes(row.traffic_limit_bytes) : '无限制' }}</span>
           </template>
         </el-table-column>
         <el-table-column label="今日流量" width="140">
@@ -100,7 +96,7 @@ import { ElMessage, ElMessageBox } from 'element-plus';
 import RuleFormDialog from '../components/RuleFormDialog.vue';
 import { useMachineStore } from '../stores/machine';
 import { useRuleStore } from '../stores/rule';
-import { formatBytes, formatSpeed, protocolLabel } from '../utils/format';
+import { formatBytes, protocolLabel } from '../utils/format';
 
 const machineStore = useMachineStore();
 const ruleStore = useRuleStore();
@@ -247,6 +243,7 @@ onBeforeUnmount(() => {
 <style scoped>
 .rules-header {
   align-items: flex-start;
+  flex-direction: column;
 }
 
 .section-title {
@@ -263,6 +260,12 @@ onBeforeUnmount(() => {
 
 .search-input {
   width: 260px;
+  margin-right: auto;
+}
+
+.rules-toolbar {
+  width: 100%;
+  justify-content: flex-end;
 }
 
 .rule-link {

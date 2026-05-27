@@ -14,11 +14,12 @@ var errInvalidPSKLength = errors.New("config: psk must decode to 32 bytes")
 
 // RuleConfig 单条转发规则配置。
 type RuleConfig struct {
-	RuleID     string `json:"rule_id"`
-	ListenAddr string `json:"listen_addr"`
-	Protocol   string `json:"protocol"`
-	EgressAddr string `json:"egress_addr"`
-	TargetAddr string `json:"target_addr"`
+	RuleID            string `json:"rule_id"`
+	ListenAddr        string `json:"listen_addr"`
+	Protocol          string `json:"protocol"`
+	EgressAddr        string `json:"egress_addr"`
+	TargetAddr        string `json:"target_addr"`
+	TrafficLimitBytes int64  `json:"traffic_limit_bytes"`
 }
 
 // Config 完整本地配置。

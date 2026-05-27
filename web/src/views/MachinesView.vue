@@ -85,7 +85,7 @@ import { ElButton, ElMessage, ElMessageBox, ElProgress, ElTag, ElTooltip } from 
 import { CopyDocument } from '@element-plus/icons-vue';
 import { useMachineStore } from '../stores/machine';
 import { useRuleStore } from '../stores/rule';
-import { formatBytes, formatDateTime, formatRelativeTime, formatSpeed, roleLabel } from '../utils/format';
+import { formatBytes, formatSpeed, roleLabel } from '../utils/format';
 
 const machineStore = useMachineStore();
 const ruleStore = useRuleStore();
@@ -375,7 +375,8 @@ const MachineGroup = defineComponent({
           ]),
 
           h('div', { class: 'compact-metrics' }, [
-            metricPill('流量', machineTraffic(machine, props.ruleStore), 'blue'),
+            metricPill('上传', machineTraffic(machine).up, 'blue'),
+            metricPill('下载', machineTraffic(machine).down, 'green'),
           ]),
 
           h('div', { class: 'machine-detail' }, [
@@ -448,13 +449,19 @@ function relatedRules(machine, ruleStore) {
   );
 }
 
-function machineTraffic(machine, ruleStore) {
-  if (machine.demo_traffic !== undefined) {
-    return formatBytes(machine.demo_traffic);
+function machineTraffic(machine) {
+  if (machine.demo_net) {
+    return {
+      up: formatBytes(machine.demo_net.up || 0),
+      down: formatBytes(machine.demo_net.down || 0),
+    };
   }
-
-  const total = relatedRules(machine, ruleStore).reduce((sum, rule) => sum + (ruleStore.dayTotals[rule.id] || 0), 0);
-  return formatBytes(total);
+  const up = Number(machine.net_bytes_up || 0);
+  const down = Number(machine.net_bytes_down || 0);
+  return {
+    up: formatBytes(up),
+    down: formatBytes(down),
+  };
 }
 
 function machineSpeed(machine, ruleStore) {
@@ -472,18 +479,6 @@ function machineSpeed(machine, ruleStore) {
     { up: 0, down: 0 },
   );
   return `↑ ${formatSpeed(speed.up)}  ↓ ${formatSpeed(speed.down)}`;
-}
-
-function machineInfo(machine) {
-  if (machine.demo_info) {
-    return machine.demo_info;
-  }
-
-  const parts = [machine.os || '--'];
-  if (machine.rule_count !== undefined) {
-    parts.push(`${machine.rule_count || 0} 条规则`);
-  }
-  return parts.join(' · ');
 }
 
 function machineOnlineTime(machine, now) {
@@ -535,6 +530,7 @@ function addDemoMachine(role) {
     uptime_seconds: index * 37 * 60,
     rule_count: Math.max(1, index * 2),
     demo_traffic: (32 + index * 18) * 1024 ** 3,
+    demo_net: { up: (18 + index * 11) * 1024 ** 3, down: (46 + index * 21) * 1024 ** 3 },
     demo_speed: { up: (300 + index * 180) * 1024, down: (700 + index * 260) * 1024 },
     demo_info: `${2 + index * 2} Cores · ${4 + index * 4} GB · ${80 + index * 40} GB`,
     online_since: new Date(now - index * 37 * 60 * 1000).toISOString(),
@@ -606,6 +602,7 @@ function buildDemoMachines() {
       uptime_seconds: 9 * 60 * 60,
       rule_count: 8,
       demo_traffic: 128.6 * gb,
+      demo_net: { up: 42.1 * gb, down: 128.6 * gb },
       demo_speed: { up: 820 * 1024, down: 1.4 * mb },
       demo_info: '4 Cores · 8 GB · 80 GB',
       online_since: new Date(now - 9 * 60 * 60 * 1000).toISOString(),
@@ -625,6 +622,7 @@ function buildDemoMachines() {
       uptime_seconds: 2 * 24 * 60 * 60 + 41 * 60,
       rule_count: 13,
       demo_traffic: 438.2 * gb,
+      demo_net: { up: 122.4 * gb, down: 438.2 * gb },
       demo_speed: { up: 3.8 * mb, down: 5.6 * mb },
       demo_info: '8 Cores · 16 GB · 160 GB',
       online_since: new Date(now - 2 * 24 * 60 * 60 * 1000 - 41 * 60 * 1000).toISOString(),
@@ -644,6 +642,7 @@ function buildDemoMachines() {
       uptime_seconds: 16 * 60 * 60,
       rule_count: 21,
       demo_traffic: 1.82 * 1024 * gb,
+      demo_net: { up: 612.7 * gb, down: 1.82 * 1024 * gb },
       demo_speed: { up: 9.2 * mb, down: 12.7 * mb },
       demo_info: '16 Cores · 32 GB · 320 GB',
       online_since: new Date(now - 16 * 60 * 60 * 1000).toISOString(),
@@ -663,6 +662,7 @@ function buildDemoMachines() {
       uptime_seconds: 0,
       rule_count: 5,
       demo_traffic: 64.8 * gb,
+      demo_net: { up: 18.2 * gb, down: 64.8 * gb },
       demo_speed: { up: 0, down: 0 },
       demo_info: '4 Cores · 8 GB · 120 GB',
       online_since: '',
@@ -682,6 +682,7 @@ function buildDemoMachines() {
       uptime_seconds: 7 * 60 * 60 + 12 * 60,
       rule_count: 12,
       demo_traffic: 612.4 * gb,
+      demo_net: { up: 241.4 * gb, down: 612.4 * gb },
       demo_speed: { up: 2.1 * mb, down: 4.9 * mb },
       demo_info: '8 Cores · 16 GB · 200 GB',
       online_since: new Date(now - 7 * 60 * 60 * 1000 - 12 * 60 * 1000).toISOString(),
@@ -701,6 +702,7 @@ function buildDemoMachines() {
       uptime_seconds: 4 * 24 * 60 * 60,
       rule_count: 17,
       demo_traffic: 2.4 * 1024 * gb,
+      demo_net: { up: 1.1 * 1024 * gb, down: 2.4 * 1024 * gb },
       demo_speed: { up: 7.8 * mb, down: 18.5 * mb },
       demo_info: '16 Cores · 64 GB · 1 TB',
       online_since: new Date(now - 4 * 24 * 60 * 60 * 1000).toISOString(),
@@ -720,6 +722,7 @@ function buildDemoMachines() {
       uptime_seconds: 0,
       rule_count: 4,
       demo_traffic: 91.3 * gb,
+      demo_net: { up: 22.6 * gb, down: 91.3 * gb },
       demo_speed: { up: 0, down: 0 },
       demo_info: '4 Cores · 8 GB · 100 GB',
       online_since: '',
@@ -873,7 +876,9 @@ function buildDemoMachines() {
 }
 
 .machines-page .compact-metrics {
-  display: block;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
   margin-top: 16px;
 }
 

@@ -41,11 +41,12 @@ type RegisterMachineInput struct {
 }
 
 type AgentRuleConfig struct {
-	RuleID     string `json:"rule_id"`
-	ListenAddr string `json:"listen_addr"`
-	Protocol   string `json:"protocol"`
-	EgressAddr string `json:"egress_addr"`
-	TargetAddr string `json:"target_addr"`
+	RuleID            string `json:"rule_id"`
+	ListenAddr        string `json:"listen_addr"`
+	Protocol          string `json:"protocol"`
+	EgressAddr        string `json:"egress_addr"`
+	TargetAddr        string `json:"target_addr"`
+	TrafficLimitBytes int64  `json:"traffic_limit_bytes"`
 }
 
 type InstallScriptPayload struct {
@@ -216,7 +217,7 @@ func (s *MachineService) AuthenticateMachineToken(token string) (*paneldb.Machin
 	return &machine, nil
 }
 
-func (s *MachineService) UpdateHeartbeat(machine *paneldb.Machine, role, ip string, cpuPercent, memPercent, diskPercent float64, uptimeSec uint64) error {
+func (s *MachineService) UpdateHeartbeat(machine *paneldb.Machine, role, ip string, cpuPercent, memPercent, diskPercent float64, uptimeSec, netBytesUp, netBytesDown uint64) error {
 	if machine == nil {
 		return ErrMachineNotFound
 	}
@@ -238,6 +239,8 @@ func (s *MachineService) UpdateHeartbeat(machine *paneldb.Machine, role, ip stri
 		"mem_percent":    memPercent,
 		"disk_percent":   diskPercent,
 		"uptime_seconds": uptimeSec,
+		"net_bytes_up":   netBytesUp,
+		"net_bytes_down": netBytesDown,
 		"last_heartbeat": time.Now(),
 	}
 	if !machine.Online || machine.OnlineSince.IsZero() {

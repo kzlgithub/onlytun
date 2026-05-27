@@ -45,6 +45,15 @@ export const authApi = {
   login(password) {
     return api.post('/api/login', { password });
   },
+  changePassword(payload) {
+    return api.post('/api/settings/password', payload);
+  },
+};
+
+export const panelApi = {
+  metrics() {
+    return api.get('/api/panel/metrics');
+  },
 };
 
 export const machineApi = {

@@ -17,18 +17,21 @@ import (
 	"github.com/shirou/gopsutil/v3/disk"
 	"github.com/shirou/gopsutil/v3/host"
 	"github.com/shirou/gopsutil/v3/mem"
+	gopsnet "github.com/shirou/gopsutil/v3/net"
 )
 
 const reportInterval = 30 * time.Second
 
 type heartbeatPayload struct {
-	MachineID   string  `json:"machine_id"`
-	Role        string  `json:"role"`
-	IP          string  `json:"ip"`
-	CPUPercent  float64 `json:"cpu_percent"`
-	MemPercent  float64 `json:"mem_percent"`
-	DiskPercent float64 `json:"disk_percent"`
-	UptimeSec   uint64  `json:"uptime_seconds"`
+	MachineID    string  `json:"machine_id"`
+	Role         string  `json:"role"`
+	IP           string  `json:"ip"`
+	CPUPercent   float64 `json:"cpu_percent"`
+	MemPercent   float64 `json:"mem_percent"`
+	DiskPercent  float64 `json:"disk_percent"`
+	UptimeSec    uint64  `json:"uptime_seconds"`
+	NetBytesUp   uint64  `json:"net_bytes_up"`
+	NetBytesDown uint64  `json:"net_bytes_down"`
 }
 
 // Reporter 负责向面板上报心跳和统计数据。
@@ -105,19 +108,40 @@ func (r *Reporter) sendHeartbeat(ctx context.Context) {
 		log.Printf("[WARN] reporter heartbeat uptime sample failed: %v", err)
 	}
 
+	netBytesUp, netBytesDown := sampleNetBytes()
+
 	payload := heartbeatPayload{
-		MachineID:   r.machineID,
-		Role:        r.role,
-		IP:          detectPublicIP(),
-		CPUPercent:  firstCPUPercent(cpuPercent),
-		MemPercent:  memStats.UsedPercent,
-		DiskPercent: diskPercent,
-		UptimeSec:   uptimeSec,
+		MachineID:    r.machineID,
+		Role:         r.role,
+		IP:           detectPublicIP(),
+		CPUPercent:   firstCPUPercent(cpuPercent),
+		MemPercent:   memStats.UsedPercent,
+		DiskPercent:  diskPercent,
+		UptimeSec:    uptimeSec,
+		NetBytesUp:   netBytesUp,
+		NetBytesDown: netBytesDown,
 	}
 
 	if err := r.postJSON(ctx, "/api/agent/heartbeat", payload); err != nil {
 		log.Printf("[WARN] reporter heartbeat post failed: %v", err)
 	}
+}
+
+func sampleNetBytes() (uint64, uint64) {
+	counters, err := gopsnet.IOCounters(true)
+	if err != nil {
+		log.Printf("[WARN] reporter heartbeat network sample failed: %v", err)
+		return 0, 0
+	}
+	var bytesUp, bytesDown uint64
+	for _, item := range counters {
+		if item.Name == "lo" || strings.HasPrefix(item.Name, "lo:") {
+			continue
+		}
+		bytesUp += item.BytesSent
+		bytesDown += item.BytesRecv
+	}
+	return bytesUp, bytesDown
 }
 
 func detectPublicIP() string {

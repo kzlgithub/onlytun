@@ -1,10 +1,11 @@
 package api
 
 import (
-	"crypto/sha256"
+	"crypto/subtle"
 	"errors"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -19,11 +20,13 @@ const (
 )
 
 type Handler struct {
-	Machines      *service.MachineService
-	Rules         *service.RuleService
-	Stats         *service.StatsService
-	AdminPassword string
-	JWTSecret     []byte
+	Machines          *service.MachineService
+	Rules             *service.RuleService
+	Stats             *service.StatsService
+	Settings          *service.SettingsService
+	mu                sync.RWMutex
+	AdminPasswordHash string
+	JWTSecret         []byte
 }
 
 type loginRequest struct {
@@ -34,19 +37,24 @@ type loginResponse struct {
 	Token string `json:"token"`
 }
 
+type changePasswordRequest struct {
+	OldPassword string `json:"old_password"`
+	NewPassword string `json:"new_password"`
+}
+
 type adminClaims struct {
 	Role string `json:"role"`
 	jwt.RegisteredClaims
 }
 
-func NewHandler(machines *service.MachineService, rules *service.RuleService, stats *service.StatsService, adminPassword string) *Handler {
-	sum := sha256.Sum256([]byte(adminPassword))
+func NewHandler(machines *service.MachineService, rules *service.RuleService, stats *service.StatsService, settings *service.SettingsService, adminPasswordHash string) *Handler {
 	return &Handler{
-		Machines:      machines,
-		Rules:         rules,
-		Stats:         stats,
-		AdminPassword: adminPassword,
-		JWTSecret:     sum[:],
+		Machines:          machines,
+		Rules:             rules,
+		Stats:             stats,
+		Settings:          settings,
+		AdminPasswordHash: adminPasswordHash,
+		JWTSecret:         []byte(adminPasswordHash),
 	}
 }
 
@@ -56,7 +64,7 @@ func (h *Handler) Login(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
 		return
 	}
-	if req.Password != h.AdminPassword {
+	if !h.passwordMatches(req.Password) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid password"})
 		return
 	}
@@ -70,13 +78,41 @@ func (h *Handler) Login(c *gin.Context) {
 		},
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	signed, err := token.SignedString(h.JWTSecret)
+	signed, err := token.SignedString(h.jwtSecret())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to sign token"})
 		return
 	}
 
 	c.JSON(http.StatusOK, loginResponse{Token: signed})
+}
+
+func (h *Handler) ChangePassword(c *gin.Context) {
+	var req changePasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		return
+	}
+	if strings.TrimSpace(req.NewPassword) == "" || len(req.NewPassword) < 8 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "new password must be at least 8 characters"})
+		return
+	}
+	if !h.passwordMatches(req.OldPassword) {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "old password is incorrect"})
+		return
+	}
+
+	nextHash := service.HashAdminPassword(req.NewPassword)
+	if err := h.Settings.SetAdminPasswordHash(nextHash); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	h.mu.Lock()
+	h.AdminPasswordHash = nextHash
+	h.JWTSecret = []byte(nextHash)
+	h.mu.Unlock()
+	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
 func (h *Handler) RequireAdminJWT() gin.HandlerFunc {
@@ -88,7 +124,7 @@ func (h *Handler) RequireAdminJWT() gin.HandlerFunc {
 		}
 
 		token, err := jwt.ParseWithClaims(tokenString, &adminClaims{}, func(token *jwt.Token) (any, error) {
-			return h.JWTSecret, nil
+			return h.jwtSecret(), nil
 		})
 		if err != nil || !token.Valid {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
@@ -97,6 +133,20 @@ func (h *Handler) RequireAdminJWT() gin.HandlerFunc {
 
 		c.Next()
 	}
+}
+
+func (h *Handler) passwordMatches(password string) bool {
+	hash := service.HashAdminPassword(password)
+	h.mu.RLock()
+	current := h.AdminPasswordHash
+	h.mu.RUnlock()
+	return subtle.ConstantTimeCompare([]byte(hash), []byte(current)) == 1
+}
+
+func (h *Handler) jwtSecret() []byte {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return append([]byte(nil), h.JWTSecret...)
 }
 
 func (h *Handler) RequireMachineToken() gin.HandlerFunc {

@@ -60,8 +60,9 @@ const router = createRouter({
 
 router.beforeEach((to) => {
   const token = localStorage.getItem('onlytun_token');
+  const demoPreview = to.path === '/dashboard' && to.query.demo === '1';
 
-  if (to.meta.requiresAuth && !token) {
+  if (to.meta.requiresAuth && !token && !demoPreview) {
     return { path: '/login', query: { redirect: to.fullPath } };
   }
 

@@ -166,13 +166,14 @@ func (s *MachineService) RequestMachineUpdate(id string) (*paneldb.MachineUpdate
 		err := tx.
 			Where("machine_id = ? AND status IN ?", id, []string{"pending", "running"}).
 			Order("created_at DESC").
-			Take(&existing).Error
-		if err == nil {
+			Limit(1).
+			Find(&existing).Error
+		if err != nil {
+			return err
+		}
+		if existing.ID != "" {
 			task = &existing
 			return nil
-		}
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return err
 		}
 
 		record := &paneldb.MachineUpdateTask{

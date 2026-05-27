@@ -29,7 +29,7 @@
               新增出口演示
             </el-button>
             <el-button v-if="localDemoMode" plain @click="resetDemoMachines">重置演示</el-button>
-            <el-button :loading="manualRefreshing" @click="manualRefresh">立即刷新</el-button>
+            <el-button :loading="manualRefreshing" round @click="manualRefresh">立即刷新</el-button>
           </div>
         </div>
       </template>
@@ -380,7 +380,14 @@ async function handleDelete(machine) {
 
 onMounted(async () => {
   await loadData({ initial: machineStore.machines.length === 0 });
-  await machineStore.fetchInstallCommands();
+  if (localDemoMode) {
+    machineStore.installCommands.ingress =
+      "bash <(curl -fsSL https://raw.githubusercontent.com/kzlgithub/onlytun/main/scripts/install.sh) --token 'demo-token-ingress' --role ingress --panel 'http://127.0.0.1:8080'";
+    machineStore.installCommands.egress =
+      "bash <(curl -fsSL https://raw.githubusercontent.com/kzlgithub/onlytun/main/scripts/install.sh) --token 'demo-token-egress' --role egress --panel 'http://127.0.0.1:8080'";
+  } else {
+    await machineStore.fetchInstallCommands();
+  }
   timer = window.setInterval(() => {
     nowTick.value = Date.now();
     loadData();
@@ -417,7 +424,7 @@ const MachineGroup = defineComponent({
           h('div', { class: 'machine-card-top' }, [
             h('div', { class: 'machine-title-wrap' }, [
               h('span', { class: ['machine-state', machine.online ? 'online' : 'offline'] }),
-              h('div', [
+              h('div', { class: 'machine-title-main' }, [
                 h('h4', { class: 'machine-name' }, machine.name || '未命名机器'),
                 h('div', { class: 'machine-ip-line' }, [
                   h('span', { class: 'machine-ip-text' }, machine.ip || '--'),
@@ -439,7 +446,11 @@ const MachineGroup = defineComponent({
                         ),
                     },
                   ),
-                  h('span', { class: 'agent-version-inline' }, `Agent ${machine.agent_version || 'unknown'}`),
+                  h(
+                    'span',
+                    { class: ['agent-version-inline', hasAgentUpdate(machine) ? 'has-update' : ''] },
+                    agentVersionText(machine),
+                  ),
                 ]),
               ]),
             ]),
@@ -450,10 +461,9 @@ const MachineGroup = defineComponent({
 
           updating
             ? h('div', { class: 'machine-update-state' }, [
-                h(RefreshRight, { class: 'update-spin-icon' }),
-                h('div', [
+                h('div', { class: 'update-title-row' }, [
+                  h(RefreshRight, { class: 'update-spin-icon' }),
                   h('strong', updateTaskLabel(machine.last_update_task)),
-                  h('p', updateTaskHint(machine.last_update_task)),
                 ]),
                 h('div', { class: 'update-steps' }, [
                   updateStep('下发任务', true),
@@ -472,40 +482,40 @@ const MachineGroup = defineComponent({
                   progressRow('内存', Number(machine.mem_percent || 0), 'mem'),
                   progressRow('硬盘', optionalPercent(machine.disk_percent), 'disk'),
                   detailRow('网速', machineSpeed(machine, props.ruleStore)),
-                  detailRow('更新', updateTaskLabel(machine.last_update_task)),
                   detailRow('在线时间', machineOnlineTime(machine, nowTick.value)),
                 ]),
               ]),
 
-          h(
-            'div',
-            { class: 'machine-actions' },
-            h(
-              ElDropdown,
-              {
-                trigger: 'click',
-                disabled: updating,
-                onCommand: (command) => {
-                  if (command === 'rename') emit('rename', machine);
-                  if (command === 'update') emit('update-script', machine);
-                  if (command === 'delete') emit('delete', machine);
-                },
-              },
-              {
-                default: () =>
-                  h(ElButton, { class: 'more-action-btn', disabled: updating }, () => [
-                    h('span', '操作'),
-                    h(ArrowDown, { class: 'action-arrow' }),
-                  ]),
-                dropdown: () =>
-                  h(ElDropdownMenu, null, () => [
-                    h(ElDropdownItem, { command: 'rename' }, () => '改名'),
-                    h(ElDropdownItem, { command: 'update', disabled: !machine.online }, () => '更新脚本'),
-                    h(ElDropdownItem, { command: 'delete', class: 'danger-dropdown-item' }, () => '删除'),
-                  ]),
-              },
-            ),
-          ),
+          !updating
+            ? h(
+                'div',
+                { class: 'machine-actions' },
+                h(
+                  ElDropdown,
+                  {
+                    trigger: 'click',
+                    onCommand: (command) => {
+                      if (command === 'rename') emit('rename', machine);
+                      if (command === 'update') emit('update-script', machine);
+                      if (command === 'delete') emit('delete', machine);
+                    },
+                  },
+                  {
+                    default: () =>
+                      h(ElButton, { class: 'more-action-btn' }, () => [
+                        h('span', '操作'),
+                        h(ArrowDown, { class: 'action-arrow' }),
+                      ]),
+                    dropdown: () =>
+                      h(ElDropdownMenu, null, () => [
+                        h(ElDropdownItem, { command: 'rename' }, () => '改名'),
+                        h(ElDropdownItem, { command: 'update', disabled: !machine.online }, () => '更新脚本'),
+                        h(ElDropdownItem, { command: 'delete', class: 'danger-dropdown-item' }, () => '删除'),
+                      ]),
+                  },
+                ),
+              )
+            : null,
         ],
       );
     };
@@ -553,11 +563,29 @@ function detailRow(label, value) {
 }
 
 function updateStep(label, active) {
-  return h('span', { class: ['update-step', active ? 'active' : ''] }, label);
+  return h('span', { class: ['update-step', active ? 'active' : ''] }, [
+    h('span', { class: 'update-step-dot' }),
+    h('span', label),
+  ]);
 }
 
 function isUpdating(task) {
   return task?.status === 'pending' || task?.status === 'running';
+}
+
+function hasAgentUpdate(machine) {
+  const current = String(machine.agent_version || '').trim();
+  const latest = String(machine.agent_latest_version || '').trim();
+  return Boolean(current && latest && current !== latest);
+}
+
+function agentVersionText(machine) {
+  const current = String(machine.agent_version || 'unknown').trim();
+  const latest = String(machine.agent_latest_version || '').trim();
+  if (latest && current !== latest) {
+    return `${current}-->${latest}`;
+  }
+  return current;
 }
 
 function updateTaskLabel(task) {
@@ -566,20 +594,10 @@ function updateTaskLabel(task) {
   }
   const status = task.status || '';
   if (status === 'pending') return '等待执行';
-  if (status === 'running') return '执行中';
+  if (status === 'running') return '正在更新 agent';
   if (status === 'success') return '已更新';
   if (status === 'failed') return '失败';
   return status || '未知';
-}
-
-function updateTaskHint(task) {
-  if (task?.status === 'pending') {
-    return '等待 Agent 下一次配置同步，卡片暂时锁定。';
-  }
-  if (task?.status === 'running') {
-    return 'Agent 正在下载新版、替换二进制并重启。';
-  }
-  return '更新任务处理中。';
 }
 
 function optionalPercent(value) {
@@ -671,6 +689,7 @@ function addDemoMachine(role) {
     online: true,
     os: 'Ubuntu 22.04',
     agent_version: 'v1.2.5',
+    agent_latest_version: 'v1.2.6',
     cpu_percent: Math.min(95, 8 + index * 7),
     mem_percent: Math.min(92, 18 + index * 9),
     disk_percent: Math.min(88, 24 + index * 6),
@@ -720,7 +739,10 @@ function loadDemoMachines() {
     if (!Array.isArray(parsed) || parsed.length === 0) {
       return buildDemoMachines();
     }
-    if (parsed.some((item) => !item.demo_net || !item.demo_speed || !item.agent_version)) {
+    if (
+      parsed.some((item) => !item.demo_net || !item.demo_speed || !item.agent_version || !item.agent_latest_version) ||
+      !parsed.some((item) => item.last_update_task?.status === 'running')
+    ) {
       return buildDemoMachines();
     }
     return parsed;
@@ -750,6 +772,7 @@ function buildDemoMachines() {
       online: true,
       os: 'Ubuntu 22.04',
       agent_version: 'v1.2.5',
+      agent_latest_version: 'v1.2.5',
       cpu_percent: 7,
       mem_percent: 18,
       disk_percent: 36,
@@ -771,6 +794,7 @@ function buildDemoMachines() {
       online: true,
       os: 'Debian 12',
       agent_version: 'v1.2.5',
+      agent_latest_version: 'v1.2.6',
       cpu_percent: 32,
       mem_percent: 44,
       disk_percent: 51,
@@ -782,6 +806,13 @@ function buildDemoMachines() {
       demo_info: '8 Cores · 16 GB · 160 GB',
       online_since: new Date(now - 2 * 24 * 60 * 60 * 1000 - 41 * 60 * 1000).toISOString(),
       last_heartbeat: new Date(now - 2 * 1000).toISOString(),
+      last_update_task: {
+        id: 'demo-running-update',
+        kind: 'agent',
+        status: 'running',
+        requested_at: new Date(now - 52 * 1000).toISOString(),
+        started_at: new Date(now - 18 * 1000).toISOString(),
+      },
     },
     {
       id: 'demo-ingress-hongkong',
@@ -792,6 +823,7 @@ function buildDemoMachines() {
       online: true,
       os: 'Ubuntu 24.04',
       agent_version: 'v1.2.4',
+      agent_latest_version: 'v1.2.6',
       cpu_percent: 61,
       mem_percent: 57,
       disk_percent: 73,
@@ -813,6 +845,7 @@ function buildDemoMachines() {
       online: false,
       os: 'Rocky Linux 9',
       agent_version: 'v1.2.3',
+      agent_latest_version: 'v1.2.6',
       cpu_percent: 0,
       mem_percent: 0,
       disk_percent: 42,
@@ -834,6 +867,7 @@ function buildDemoMachines() {
       online: true,
       os: 'Ubuntu 22.04',
       agent_version: 'v1.2.5',
+      agent_latest_version: 'v1.2.5',
       cpu_percent: 12,
       mem_percent: 23,
       disk_percent: 28,
@@ -855,6 +889,7 @@ function buildDemoMachines() {
       online: true,
       os: 'Debian 12',
       agent_version: 'v1.2.4',
+      agent_latest_version: 'v1.2.6',
       cpu_percent: 46,
       mem_percent: 62,
       disk_percent: 67,
@@ -876,6 +911,7 @@ function buildDemoMachines() {
       online: false,
       os: 'Ubuntu 20.04',
       agent_version: 'v1.2.2',
+      agent_latest_version: 'v1.2.6',
       cpu_percent: 0,
       mem_percent: 0,
       disk_percent: 81,
@@ -977,9 +1013,27 @@ function buildDemoMachines() {
 }
 
 .machines-page .machine-card.is-offline {
-  background: linear-gradient(180deg, #ffffff 0%, #fff7f7 100%);
-  border-color: rgba(245, 108, 108, 0.28);
-  opacity: 0.82;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+  border-color: rgba(122, 138, 160, 0.2);
+}
+
+.machines-page .machine-card.is-offline::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  pointer-events: none;
+  border-radius: inherit;
+  background:
+    linear-gradient(180deg, rgba(241, 245, 249, 0.58), rgba(226, 232, 240, 0.66)),
+    repeating-linear-gradient(
+      135deg,
+      rgba(148, 163, 184, 0.08) 0,
+      rgba(148, 163, 184, 0.08) 1px,
+      transparent 1px,
+      transparent 8px
+    );
+  backdrop-filter: grayscale(0.45) saturate(0.65);
 }
 
 .machines-page .machine-card.is-updating {
@@ -1000,6 +1054,12 @@ function buildDemoMachines() {
   display: flex;
   gap: 10px;
   min-width: 0;
+  flex: 1 1 auto;
+}
+
+.machines-page .machine-title-main {
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .machines-page .machine-state {
@@ -1047,11 +1107,21 @@ function buildDemoMachines() {
 }
 
 .machines-page .agent-version-inline {
-  margin-left: auto;
-  padding-left: 8px;
+  position: absolute;
+  top: 44px;
+  right: 18px;
+  max-width: 150px;
   color: #9aa8ba;
   font-size: 11px;
+  text-align: right;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.machines-page .agent-version-inline.has-update {
+  color: #1f6feb;
+  font-weight: 700;
 }
 
 .machines-page .copy-ip-btn {
@@ -1148,15 +1218,22 @@ function buildDemoMachines() {
 
 .machines-page .machine-update-state {
   margin-top: 18px;
-  min-height: 168px;
-  padding: 18px;
+  min-height: 250px;
+  padding: 20px 16px 22px;
   border-radius: 16px;
-  display: grid;
-  grid-template-columns: 42px minmax(0, 1fr);
-  gap: 12px;
-  align-items: flex-start;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 18px;
   background: rgba(64, 158, 255, 0.08);
   border: 1px solid rgba(64, 158, 255, 0.14);
+}
+
+.machines-page .update-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
 }
 
 .machines-page .machine-update-state strong {
@@ -1165,39 +1242,68 @@ function buildDemoMachines() {
   font-size: 16px;
 }
 
-.machines-page .machine-update-state p {
-  margin: 6px 0 0;
-  color: #667996;
-  line-height: 1.55;
-  font-size: 13px;
-}
-
 .machines-page .update-spin-icon {
-  width: 30px;
-  height: 30px;
-  padding: 8px;
+  width: 28px;
+  height: 28px;
+  padding: 7px;
   color: #1f6feb;
-  border-radius: 14px;
+  border-radius: 12px;
   background: #ffffff;
   box-shadow: 0 10px 22px rgba(31, 111, 235, 0.14);
   animation: update-spin 1.2s linear infinite;
 }
 
 .machines-page .update-steps {
-  grid-column: 1 / -1;
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 6px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 22px;
+  position: relative;
+}
+
+.machines-page .update-steps::before,
+.machines-page .update-steps::after {
+  content: "↓";
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  color: #1f6feb;
+  font-size: 16px;
+  font-weight: 800;
+  animation: update-arrow-flow 1.15s ease-in-out infinite;
+}
+
+.machines-page .update-steps::before {
+  top: 45px;
+}
+
+.machines-page .update-steps::after {
+  top: 108px;
+  animation-delay: 0.22s;
 }
 
 .machines-page .update-step {
-  padding: 6px 9px;
-  border-radius: 999px;
+  min-width: 128px;
+  min-height: 38px;
+  padding: 10px 16px;
+  border-radius: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   color: #7a8aa0;
-  font-size: 12px;
+  font-size: 13px;
+  font-weight: 700;
   background: rgba(255, 255, 255, 0.78);
   border: 1px solid rgba(84, 112, 150, 0.12);
+}
+
+.machines-page .update-step-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #b8c4d4;
 }
 
 .machines-page .update-step.active {
@@ -1206,9 +1312,28 @@ function buildDemoMachines() {
   background: #eef6ff;
 }
 
+.machines-page .update-step.active .update-step-dot {
+  background: #1f6feb;
+  box-shadow: 0 0 0 4px rgba(31, 111, 235, 0.12);
+}
+
 @keyframes update-spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+@keyframes update-arrow-flow {
+  0% {
+    opacity: 0.28;
+    transform: translate(-50%, -5px);
+  }
+  45% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.28;
+    transform: translate(-50%, 5px);
   }
 }
 

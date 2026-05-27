@@ -2,9 +2,12 @@
   <div class="layout-root">
     <aside class="sidebar">
       <div class="brand">
-        <div class="brand-mark">
-          <span></span>
-          <span></span>
+        <div class="brand-logo-stack">
+          <div class="brand-mark">
+            <span></span>
+            <span></span>
+          </div>
+          <small>{{ panelVersion }}</small>
         </div>
         <div>
           <h1>OnlyTun</h1>
@@ -36,11 +39,6 @@
           <span>设置</span>
         </el-menu-item>
       </el-menu>
-
-      <div class="sidebar-version">
-        <span>Panel</span>
-        <strong>{{ panelVersion }}</strong>
-      </div>
 
       <el-button class="sidebar-logout" type="danger" plain @click="handleLogout">
         退出登录
@@ -88,7 +86,7 @@ function handleLogout() {
 
 onMounted(async () => {
   try {
-    const { data } = await panelApi.version();
+    const { data } = await panelApi.version({ silentError: true });
     panelVersion.value = data.version || 'unknown';
   } catch {
     panelVersion.value = 'unknown';
@@ -119,10 +117,24 @@ onMounted(async () => {
 
 .brand {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 14px;
   margin-bottom: 32px;
   padding: 8px 8px 18px;
+}
+
+.brand-logo-stack {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.brand-logo-stack small {
+  color: #9aa8ba;
+  font-size: 11px;
+  line-height: 1;
+  letter-spacing: 0.02em;
 }
 
 .brand-mark {
@@ -186,31 +198,10 @@ onMounted(async () => {
 }
 
 .sidebar-logout {
-  margin-top: 14px;
+  margin-top: auto;
   width: 100%;
   height: 42px;
   border-radius: 13px;
-}
-
-.sidebar-version {
-  margin-top: auto;
-  padding: 12px 14px;
-  border-radius: 14px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  color: #6a7c94;
-  background: rgba(255, 255, 255, 0.72);
-  border: 1px solid rgba(84, 112, 150, 0.13);
-}
-
-.sidebar-version span {
-  font-size: 12px;
-}
-
-.sidebar-version strong {
-  color: #132238;
-  font-size: 13px;
 }
 
 .main-area {

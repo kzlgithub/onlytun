@@ -25,6 +25,10 @@ api.interceptors.response.use(
       error.message ||
       '请求失败';
 
+    if (error.config?.silentError) {
+      return Promise.reject(error);
+    }
+
     if (status === 401) {
       localStorage.removeItem('onlytun_token');
       ElMessage.error('登录已过期，请重新登录');
@@ -54,8 +58,8 @@ export const panelApi = {
   metrics() {
     return api.get('/api/panel/metrics');
   },
-  version() {
-    return api.get('/api/panel/version');
+  version(config = {}) {
+    return api.get('/api/panel/version', config);
   },
   updatePanel() {
     return api.post('/api/panel/update');

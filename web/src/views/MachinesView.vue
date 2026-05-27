@@ -45,7 +45,6 @@
           title="入口机"
           role="ingress"
           :machines="filteredIngressMachines"
-          :rule-store="ruleStore"
           @copy-ip="copyIP"
           @rename="handleRename"
           @update-script="handleUpdateScript"
@@ -56,7 +55,6 @@
           title="出口机"
           role="egress"
           :machines="filteredEgressMachines"
-          :rule-store="ruleStore"
           @copy-ip="copyIP"
           @rename="handleRename"
           @update-script="handleUpdateScript"
@@ -102,11 +100,9 @@ import {
 } from 'element-plus';
 import { ArrowDown, CopyDocument, RefreshRight } from '@element-plus/icons-vue';
 import { useMachineStore } from '../stores/machine';
-import { useRuleStore } from '../stores/rule';
-import { formatBytes, formatSpeed, roleLabel } from '../utils/format';
+import { formatBytes, roleLabel } from '../utils/format';
 
 const machineStore = useMachineStore();
-const ruleStore = useRuleStore();
 
 const keyword = ref('');
 const initialLoading = ref(false);
@@ -120,8 +116,6 @@ const installDialog = reactive({
 
 let timer;
 let loadingPromise = null;
-let lastTotalsAt = 0;
-let lastRulesAt = 0;
 
 const demoMode = new URLSearchParams(window.location.search).get('demo') === '1';
 const localDemoMode = new URLSearchParams(window.location.search).get('localDemo') === '1';
@@ -188,23 +182,11 @@ async function loadData(options = {}) {
   manualRefreshing.value = manual;
   refreshing.value = !initial && !manual;
 
-  const now = Date.now();
-  const includeRules = initial || manual || now - lastRulesAt >= 3000;
-  const includeDayTotals = initial || manual || now - lastTotalsAt > 30000;
   const tasks = [machineStore.fetchMachines()];
-  if (includeRules) {
-    tasks.push(ruleStore.fetchRules({ includeDayTotals }));
-  }
   loadingPromise = Promise.all(tasks);
 
   try {
     await loadingPromise;
-    if (includeRules) {
-      lastRulesAt = Date.now();
-    }
-    if (includeDayTotals) {
-      lastTotalsAt = Date.now();
-    }
   } finally {
     initialLoading.value = false;
     manualRefreshing.value = false;
@@ -414,7 +396,6 @@ const MachineGroup = defineComponent({
     title: { type: String, required: true },
     role: { type: String, required: true },
     machines: { type: Array, required: true },
-    ruleStore: { type: Object, required: true },
   },
   emits: ['copy-ip', 'rename', 'update-script', 'delete'],
   setup(props, { emit }) {
@@ -491,7 +472,6 @@ const MachineGroup = defineComponent({
                   progressRow('CPU', Number(machine.cpu_percent || 0), 'cpu'),
                   progressRow('内存', Number(machine.mem_percent || 0), 'mem'),
                   progressRow('硬盘', optionalPercent(machine.disk_percent), 'disk'),
-                  detailRow('网速', machineSpeed(machine, props.ruleStore)),
                   detailRow('在线时间', machineOnlineTime(machine, nowTick.value)),
                 ]),
               ]),
@@ -615,14 +595,6 @@ function optionalPercent(value) {
   return value !== undefined && value !== null && Number.isFinite(numeric) ? numeric : Number.NaN;
 }
 
-function relatedRules(machine, ruleStore) {
-  return ruleStore.rules.filter((rule) =>
-    machine.role === 'ingress'
-      ? rule.ingress_machine_id === machine.id
-      : rule.egress_machine_id === machine.id,
-  );
-}
-
 function machineTraffic(machine) {
   if (machine.demo_net) {
     return {
@@ -636,23 +608,6 @@ function machineTraffic(machine) {
     up: formatBytes(up),
     down: formatBytes(down),
   };
-}
-
-function machineSpeed(machine, ruleStore) {
-  if (machine.demo_speed) {
-    return `↑ ${formatSpeed(machine.demo_speed.up || 0)}  ↓ ${formatSpeed(machine.demo_speed.down || 0)}`;
-  }
-
-  const speed = relatedRules(machine, ruleStore).reduce(
-    (sum, rule) => {
-      const rate = ruleStore.rateMap[rule.id] || {};
-      sum.up += rate.up || 0;
-      sum.down += rate.down || 0;
-      return sum;
-    },
-    { up: 0, down: 0 },
-  );
-  return `↑ ${formatSpeed(speed.up)}  ↓ ${formatSpeed(speed.down)}`;
 }
 
 function machineOnlineTime(machine, now) {

@@ -1,5 +1,6 @@
 node_modules/
 dist/
+dist-deploy-*/
 !web/dist/
 !web/dist/**
 !panel/web/dist/

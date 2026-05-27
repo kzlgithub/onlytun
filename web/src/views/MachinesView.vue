@@ -3,13 +3,23 @@
     <el-card class="panel-card" shadow="never">
       <template #header>
         <div class="page-header machines-header">
-          <div>
-            <h3 class="section-title">隧道机</h3>
-            <p class="section-meta">
-              {{ onlineCount }}/{{ displayMachines.length }} 在线
-              <span v-if="demoMode || localDemoMode"> · 演示卡片</span>
-              <span v-if="localDemoMode"> · 本地可操作</span>
-            </p>
+          <div class="machines-title-row">
+            <div>
+              <h3 class="section-title">隧道机</h3>
+              <p class="section-meta">
+                {{ onlineCount }}/{{ displayMachines.length }} 在线
+                <span v-if="demoMode || localDemoMode"> · 演示卡片</span>
+                <span v-if="localDemoMode"> · 本地可操作</span>
+              </p>
+            </div>
+            <div class="install-actions">
+              <el-button class="install-action-btn ingress" @click="openInstallDialog('ingress')">
+                入口机安装命令
+              </el-button>
+              <el-button class="install-action-btn egress" @click="openInstallDialog('egress')">
+                出口机安装命令
+              </el-button>
+            </div>
           </div>
           <div class="toolbar">
             <el-input
@@ -18,10 +28,6 @@
               clearable
               placeholder="搜索名称、IP、角色"
             />
-            <el-button @click="openInstallDialog('ingress')">入口机安装命令</el-button>
-            <el-button type="primary" plain @click="openInstallDialog('egress')">
-              出口机安装命令
-            </el-button>
             <el-button v-if="localDemoMode" type="success" plain @click="addDemoMachine('ingress')">
               新增入口演示
             </el-button>
@@ -29,7 +35,7 @@
               新增出口演示
             </el-button>
             <el-button v-if="localDemoMode" plain @click="resetDemoMachines">重置演示</el-button>
-            <el-button :loading="manualRefreshing" round @click="manualRefresh">立即刷新</el-button>
+            <el-button :loading="manualRefreshing || refreshing" round @click="manualRefresh">立即刷新</el-button>
           </div>
         </div>
       </template>
@@ -155,10 +161,14 @@ const currentInstallCommand = computed(() => machineStore.installCommands[instal
 
 async function loadData(options = {}) {
   if (localDemoMode) {
+    const { initial = false, manual = false } = options;
     initialLoading.value = false;
+    manualRefreshing.value = manual;
+    refreshing.value = !initial && !manual;
+    await new Promise((resolve) => window.setTimeout(resolve, manual ? 650 : 520));
     manualRefreshing.value = false;
     refreshing.value = false;
-    return Promise.resolve();
+    return;
   }
 
   if (loadingPromise) {
@@ -938,6 +948,69 @@ function buildDemoMachines() {
   align-items: stretch;
 }
 
+.machines-page .machines-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  width: 100%;
+}
+
+.machines-page .install-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+.machines-page .install-action-btn {
+  height: 34px;
+  padding: 0 15px;
+  border-radius: 999px;
+  font-weight: 700;
+  border: 1px solid rgba(84, 112, 150, 0.14);
+  background: rgba(255, 255, 255, 0.78);
+  color: #52657d;
+  box-shadow: 0 8px 18px rgba(19, 34, 56, 0.05);
+  transition:
+    transform 0.16s ease,
+    box-shadow 0.16s ease,
+    border-color 0.16s ease,
+    background 0.16s ease,
+    color 0.16s ease;
+}
+
+.machines-page .install-action-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 24px rgba(31, 111, 235, 0.1);
+}
+
+.machines-page .install-action-btn.ingress {
+  color: #267a61;
+  background: rgba(70, 179, 137, 0.08);
+  border-color: rgba(70, 179, 137, 0.18);
+}
+
+.machines-page .install-action-btn.ingress:hover {
+  color: #16875f;
+  background: rgba(70, 179, 137, 0.14);
+  border-color: rgba(70, 179, 137, 0.28);
+}
+
+.machines-page .install-action-btn.egress {
+  color: #1f6feb;
+  background: rgba(64, 158, 255, 0.08);
+  border-color: rgba(64, 158, 255, 0.2);
+}
+
+.machines-page .install-action-btn.egress:hover {
+  color: #155bc2;
+  background: rgba(64, 158, 255, 0.14);
+  border-color: rgba(64, 158, 255, 0.3);
+}
+
 .machines-page .toolbar {
   width: 100%;
   justify-content: flex-end;
@@ -1389,6 +1462,10 @@ function buildDemoMachines() {
 @media (max-width: 900px) {
   .machines-page .machines-header {
     flex-direction: column;
+  }
+
+  .machines-page .install-actions {
+    justify-content: flex-end;
   }
 
   .machines-page .toolbar,

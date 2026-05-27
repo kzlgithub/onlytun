@@ -16,7 +16,7 @@
               clearable
               placeholder="搜索规则、路径、协议"
             />
-            <el-button :loading="manualRefreshing" round @click="manualRefresh">立即刷新</el-button>
+            <el-button :loading="manualRefreshing || refreshing" round @click="manualRefresh">立即刷新</el-button>
             <el-button type="primary" @click="openCreateDialog">新增规则</el-button>
           </div>
         </div>

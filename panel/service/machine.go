@@ -14,7 +14,7 @@ import (
 
 const (
 	installTokenTTL   = 24 * time.Hour
-	updateTaskTimeout = 10 * time.Minute
+	updateTaskTimeout = 20 * time.Minute
 )
 
 var (

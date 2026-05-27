@@ -212,7 +212,7 @@ async function updatePanel() {
       }
     }
     panelUpdate.phase = 'restarting';
-    panelUpdate.message = '更新任务已启动，正在等待 onlytun-panel 重启完成。';
+    panelUpdate.message = '更新任务已启动，正在下载并替换面板服务，网络较慢时可能需要几分钟。';
     const nextVersion = await waitForPanelReady(fromVersion);
     panelVersion.value = nextVersion;
     finishPanelUpdateLock(nextVersion);
@@ -265,7 +265,7 @@ async function waitForPanelReady(fromVersion) {
   const startedAt = Date.now();
   let sawUnavailable = false;
 
-  while (Date.now() - startedAt < 180000) {
+  while (Date.now() - startedAt < 20 * 60 * 1000) {
     await sleep(2000);
     panelUpdate.phase = sawUnavailable ? 'checking' : 'restarting';
 
@@ -297,7 +297,7 @@ function resumePanelUpdateLock() {
 
   try {
     const state = JSON.parse(raw);
-    if (!state.startedAt || Date.now() - state.startedAt > 10 * 60 * 1000) {
+    if (!state.startedAt || Date.now() - state.startedAt > 25 * 60 * 1000) {
       localStorage.removeItem(PANEL_UPDATE_LOCK_KEY);
       return;
     }

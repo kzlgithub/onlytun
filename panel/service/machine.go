@@ -92,13 +92,15 @@ func (s *MachineService) ListMachines() ([]MachineListItem, error) {
 		}
 
 		var task paneldb.MachineUpdateTask
-		if err := s.db.
+		taskResult := s.db.
 			Where("machine_id = ?", machine.ID).
 			Order("created_at DESC").
 			Limit(1).
-			Take(&task).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, err
-		} else if err == nil {
+			Find(&task)
+		if taskResult.Error != nil {
+			return nil, taskResult.Error
+		}
+		if taskResult.RowsAffected > 0 {
 			taskCopy := task
 			item.LastUpdateTask = &taskCopy
 		}
@@ -190,15 +192,16 @@ func (s *MachineService) RequestMachineUpdate(id string) (*paneldb.MachineUpdate
 
 func (s *MachineService) PendingUpdateForMachine(machineID string) (*AgentUpdateTask, error) {
 	var task paneldb.MachineUpdateTask
-	err := s.db.
+	result := s.db.
 		Where("machine_id = ? AND status = ?", machineID, "pending").
 		Order("created_at ASC").
-		Take(&task).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, nil
+		Limit(1).
+		Find(&task)
+	if result.Error != nil {
+		return nil, result.Error
 	}
-	if err != nil {
-		return nil, err
+	if result.RowsAffected == 0 {
+		return nil, nil
 	}
 	return &AgentUpdateTask{ID: task.ID, Kind: task.Kind}, nil
 }

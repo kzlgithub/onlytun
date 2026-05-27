@@ -153,7 +153,7 @@ download_panel_to() {
   local dest="$1"
   local url="${RELEASE_BASE_URL}/onlytun-panel-linux-${ARCH}"
   info "Downloading panel binary: ${url}"
-  curl --retry 3 --retry-delay 2 -fL# "$url" -o "$dest" || fail "Failed to download panel binary. Check network or GitHub Release."
+  curl --http1.1 --retry 5 --retry-delay 2 -fL# "$url" -o "$dest" || fail "Failed to download panel binary. Check network or GitHub Release."
 }
 
 download_panel() {

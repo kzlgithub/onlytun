@@ -202,7 +202,7 @@ download_agent_to() {
   local dest="$1"
   local url="${RELEASE_BASE_URL}/onlytun-agent-linux-${ARCH}"
   info "Downloading Agent binary: ${url}"
-  curl --retry 3 --retry-delay 2 -fL# "$url" -o "$dest" || fail "Failed to download Agent binary."
+  curl --http1.1 --retry 5 --retry-delay 2 -fL# "$url" -o "$dest" || fail "Failed to download Agent binary."
 }
 
 download_agent() {

@@ -21,7 +21,9 @@ var (
 	ErrMachineNotFound      = errors.New("service: machine not found")
 	ErrMachineHasRules      = errors.New("service: machine has enabled rules")
 	ErrMachineNameRequired  = errors.New("service: machine name is required")
+	ErrMachineOffline       = errors.New("service: machine is offline")
 	ErrInvalidRole          = errors.New("service: invalid role")
+	ErrUpdateTaskNotFound   = errors.New("service: update task not found")
 )
 
 type MachineService struct {
@@ -31,7 +33,8 @@ type MachineService struct {
 
 type MachineListItem struct {
 	paneldb.Machine
-	RuleCount int64 `json:"rule_count"`
+	RuleCount      int64                      `json:"rule_count"`
+	LastUpdateTask *paneldb.MachineUpdateTask `json:"last_update_task,omitempty"`
 }
 
 type RegisterMachineInput struct {
@@ -54,6 +57,17 @@ type InstallScriptPayload struct {
 	EgressCommand  string `json:"egress_command"`
 }
 
+type AgentUpdateTask struct {
+	ID   string `json:"id"`
+	Kind string `json:"kind"`
+}
+
+type MachineUpdateResult struct {
+	TaskID  string
+	Success bool
+	Error   string
+}
+
 func NewMachineService(gdb *gorm.DB, tunnelPort int) *MachineService {
 	return &MachineService{db: gdb, tunnelPort: tunnelPort}
 }
@@ -72,10 +86,24 @@ func (s *MachineService) ListMachines() ([]MachineListItem, error) {
 			Count(&ruleCount).Error; err != nil {
 			return nil, err
 		}
-		items = append(items, MachineListItem{
+		item := MachineListItem{
 			Machine:   machine,
 			RuleCount: ruleCount,
-		})
+		}
+
+		var task paneldb.MachineUpdateTask
+		if err := s.db.
+			Where("machine_id = ?", machine.ID).
+			Order("created_at DESC").
+			Limit(1).
+			Take(&task).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, err
+		} else if err == nil {
+			taskCopy := task
+			item.LastUpdateTask = &taskCopy
+		}
+
+		items = append(items, item)
 	}
 
 	return items, nil
@@ -114,6 +142,129 @@ func (s *MachineService) DeleteMachine(id string) error {
 	}
 	if result.RowsAffected == 0 {
 		return ErrMachineNotFound
+	}
+	return nil
+}
+
+func (s *MachineService) RequestMachineUpdate(id string) (*paneldb.MachineUpdateTask, error) {
+	var task *paneldb.MachineUpdateTask
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		var machine paneldb.Machine
+		if err := tx.Take(&machine, "id = ?", id).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrMachineNotFound
+			}
+			return err
+		}
+		if !machine.Online {
+			return ErrMachineOffline
+		}
+
+		var existing paneldb.MachineUpdateTask
+		err := tx.
+			Where("machine_id = ? AND status IN ?", id, []string{"pending", "running"}).
+			Order("created_at DESC").
+			Take(&existing).Error
+		if err == nil {
+			task = &existing
+			return nil
+		}
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+
+		record := &paneldb.MachineUpdateTask{
+			MachineID:   id,
+			Kind:        "agent",
+			Status:      "pending",
+			RequestedAt: time.Now(),
+		}
+		if err := tx.Create(record).Error; err != nil {
+			return err
+		}
+		task = record
+		return nil
+	})
+	return task, err
+}
+
+func (s *MachineService) PendingUpdateForMachine(machineID string) (*AgentUpdateTask, error) {
+	var task paneldb.MachineUpdateTask
+	err := s.db.
+		Where("machine_id = ? AND status = ?", machineID, "pending").
+		Order("created_at ASC").
+		Take(&task).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &AgentUpdateTask{ID: task.ID, Kind: task.Kind}, nil
+}
+
+func (s *MachineService) ClaimMachineUpdate(machineID, taskID string) (*AgentUpdateTask, error) {
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return nil, ErrUpdateTaskNotFound
+	}
+
+	var claimed *AgentUpdateTask
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		var task paneldb.MachineUpdateTask
+		err := tx.
+			Where("id = ? AND machine_id = ? AND status = ?", taskID, machineID, "pending").
+			Take(&task).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrUpdateTaskNotFound
+		}
+		if err != nil {
+			return err
+		}
+
+		now := time.Now()
+		if err := tx.Model(&paneldb.MachineUpdateTask{}).
+			Where("id = ? AND status = ?", task.ID, "pending").
+			Updates(map[string]any{
+				"status":     "running",
+				"started_at": &now,
+			}).Error; err != nil {
+			return err
+		}
+		claimed = &AgentUpdateTask{ID: task.ID, Kind: task.Kind}
+		return nil
+	})
+	return claimed, err
+}
+
+func (s *MachineService) FinishMachineUpdate(machineID string, input MachineUpdateResult) error {
+	if strings.TrimSpace(input.TaskID) == "" {
+		return ErrUpdateTaskNotFound
+	}
+
+	status := "failed"
+	errText := strings.TrimSpace(input.Error)
+	if input.Success {
+		status = "success"
+		errText = ""
+	}
+	if len(errText) > 4000 {
+		errText = errText[:4000]
+	}
+
+	now := time.Now()
+	result := s.db.Model(&paneldb.MachineUpdateTask{}).
+		Where("id = ? AND machine_id = ?", input.TaskID, machineID).
+		Updates(map[string]any{
+			"status":      status,
+			"error":       errText,
+			"finished_at": &now,
+		})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return ErrUpdateTaskNotFound
 	}
 	return nil
 }

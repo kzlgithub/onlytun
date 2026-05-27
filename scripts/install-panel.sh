@@ -20,24 +20,17 @@ RELEASE_BASE_URL="${ONLYTUN_RELEASE_BASE_URL:-https://github.com/kzlgithub/onlyt
 usage() {
   cat <<EOF
 Usage:
+  bash install-panel.sh
   bash install-panel.sh --port 8080 --password YOUR_PASSWORD
   bash install-panel.sh --install --port 8080 --password YOUR_PASSWORD
   bash install-panel.sh --uninstall
+  bash install-panel.sh --update
 EOF
 }
 
-info() {
-  printf "${YELLOW}[INFO]${NC} %s\n" "$1"
-}
-
-success() {
-  printf "${GREEN}[OK]${NC} %s\n" "$1"
-}
-
-warn() {
-  printf "${YELLOW}[WARN]${NC} %s\n" "$1"
-}
-
+info() { printf "${YELLOW}[INFO]${NC} %s\n" "$1"; }
+success() { printf "${GREEN}[OK]${NC} %s\n" "$1"; }
+warn() { printf "${YELLOW}[WARN]${NC} %s\n" "$1"; }
 fail() {
   printf "${RED}[ERROR]${NC} %s\n" "$1" >&2
   exit 1
@@ -72,6 +65,10 @@ parse_args() {
         ACTION="uninstall"
         shift
         ;;
+      --update)
+        ACTION="update"
+        shift
+        ;;
       -h|--help)
         usage
         exit 0
@@ -81,14 +78,14 @@ parse_args() {
         ;;
     esac
   done
-
-  if [ "$ACTION" = "uninstall" ]; then
-    return
-  fi
 }
 
 prompt_action_if_missing() {
   if [ -n "$ACTION" ]; then
+    return
+  fi
+  if [ -n "$PANEL_PASSWORD" ]; then
+    ACTION="install"
     return
   fi
   [ -t 0 ] || ACTION="install"
@@ -97,17 +94,22 @@ prompt_action_if_missing() {
   fi
 
   while true; do
-    printf "请选择操作：1. 安装  2. 卸载 [1/2]: "
+    printf "请选择操作：\n"
+    printf "  1. 安装\n"
+    printf "  2. 卸载\n"
+    printf "  3. 更新\n"
+    printf "请输入序号 [1-3]: "
     read -r choice
     case "$choice" in
       1) ACTION="install"; break ;;
       2) ACTION="uninstall"; break ;;
-      *) warn "请输入 1 或 2。" ;;
+      3) ACTION="update"; break ;;
+      *) warn "请输入 1、2 或 3。" ;;
     esac
   done
 }
 
-validate_install_args() {
+validate_port() {
   printf '%s' "$PANEL_PORT" | grep -Eq '^[0-9]+$' || fail "--port must be a number."
   [ "$PANEL_PORT" -ge 1 ] && [ "$PANEL_PORT" -le 65535 ] || fail "--port must be between 1 and 65535."
 }
@@ -122,21 +124,11 @@ detect_os() {
   local major="${version_id%%.*}"
 
   case "$os_id" in
-    ubuntu)
-      [ "${major:-0}" -ge 18 ] || fail "Ubuntu 18.04+ is required."
-      ;;
-    debian)
-      [ "${major:-0}" -ge 10 ] || fail "Debian 10+ is required."
-      ;;
-    centos)
-      [ "${major:-0}" -ge 7 ] || fail "CentOS 7+ is required."
-      ;;
-    rocky)
-      [ "${major:-0}" -ge 8 ] || fail "Rocky Linux 8+ is required."
-      ;;
-    *)
-      fail "Unsupported OS: ${os_id:-unknown}"
-      ;;
+    ubuntu) [ "${major:-0}" -ge 18 ] || fail "Ubuntu 18.04+ is required." ;;
+    debian) [ "${major:-0}" -ge 10 ] || fail "Debian 10+ is required." ;;
+    centos) [ "${major:-0}" -ge 7 ] || fail "CentOS 7+ is required." ;;
+    rocky) [ "${major:-0}" -ge 8 ] || fail "Rocky Linux 8+ is required." ;;
+    *) fail "Unsupported OS: ${os_id:-unknown}" ;;
   esac
 
   success "OS check passed: ${PRETTY_NAME:-$os_id}"
@@ -144,15 +136,9 @@ detect_os() {
 
 detect_arch() {
   case "$(uname -m)" in
-    x86_64|amd64)
-      ARCH="amd64"
-      ;;
-    aarch64|arm64)
-      ARCH="arm64"
-      ;;
-    *)
-      fail "Unsupported CPU architecture: $(uname -m). Only amd64 and arm64 are supported."
-      ;;
+    x86_64|amd64) ARCH="amd64" ;;
+    aarch64|arm64) ARCH="arm64" ;;
+    *) fail "Unsupported CPU architecture: $(uname -m). Only amd64 and arm64 are supported." ;;
   esac
 
   success "CPU architecture check passed: ${ARCH}"
@@ -163,10 +149,15 @@ prepare_dirs() {
   success "Directories are ready."
 }
 
-download_panel() {
+download_panel_to() {
+  local dest="$1"
   local url="${RELEASE_BASE_URL}/onlytun-panel-linux-${ARCH}"
   info "Downloading panel binary: ${url}"
-  curl --retry 3 --retry-delay 2 -fL# "$url" -o "$PANEL_BIN" || fail "Failed to download panel binary. Check network or GitHub Release."
+  curl --retry 3 --retry-delay 2 -fL# "$url" -o "$dest" || fail "Failed to download panel binary. Check network or GitHub Release."
+}
+
+download_panel() {
+  download_panel_to "$PANEL_BIN"
   chmod +x "$PANEL_BIN" || fail "Failed to chmod panel binary."
   success "Panel binary installed at ${PANEL_BIN}"
 }
@@ -295,6 +286,37 @@ uninstall_panel() {
   success "OnlyTun Panel removed. Service, binary, and ${CONFIG_DIR} have been deleted."
 }
 
+update_panel() {
+  info "Updating OnlyTun Panel..."
+  detect_os
+  detect_arch
+  prepare_dirs
+
+  local tmp_file
+  tmp_file="$(mktemp /tmp/onlytun-panel.XXXXXX)" || fail "Failed to create temporary file."
+  download_panel_to "$tmp_file"
+  chmod +x "$tmp_file" || fail "Failed to chmod downloaded binary."
+
+  if [ -f "$PANEL_BIN" ]; then
+    cp "$PANEL_BIN" "${PANEL_BIN}.bak.$(date +%Y%m%d%H%M%S)" || fail "Failed to backup current panel binary."
+  fi
+  cp "$tmp_file" "${PANEL_BIN}.new" || fail "Failed to stage updated panel binary."
+  chmod +x "${PANEL_BIN}.new" || fail "Failed to chmod staged panel binary."
+  mv -f "${PANEL_BIN}.new" "$PANEL_BIN" || fail "Failed to install updated panel binary."
+  chmod +x "$PANEL_BIN" || fail "Failed to chmod updated panel binary."
+  rm -f "$tmp_file"
+
+  systemctl daemon-reload || fail "systemctl daemon-reload failed."
+  systemctl restart "$SERVICE_NAME" || fail "Failed to restart ${SERVICE_NAME}."
+  sleep 3
+  if systemctl is-active --quiet "$SERVICE_NAME"; then
+    success "OnlyTun Panel updated successfully. Database preserved at ${CONFIG_DIR}/panel.db."
+  else
+    systemctl status "$SERVICE_NAME" --no-pager || true
+    fail "OnlyTun Panel update finished but service is not active."
+  fi
+}
+
 main() {
   require_root
   require_command curl
@@ -305,12 +327,18 @@ main() {
 
   parse_args "$@"
   prompt_action_if_missing
-  if [ "$ACTION" = "uninstall" ]; then
-    uninstall_panel
-    exit 0
-  fi
+  case "$ACTION" in
+    uninstall)
+      uninstall_panel
+      exit 0
+      ;;
+    update)
+      update_panel
+      exit 0
+      ;;
+  esac
 
-  validate_install_args
+  validate_port
   require_command stty
   detect_os
   detect_arch

@@ -23,27 +23,20 @@ RELEASE_BASE_URL="${ONLYTUN_RELEASE_BASE_URL:-https://github.com/kzlgithub/onlyt
 usage() {
   cat <<EOF
 Usage:
+  bash install.sh
   bash install.sh --token INSTALL_TOKEN --role ingress|egress --panel http://host:port
   bash install.sh --install --token INSTALL_TOKEN --role ingress|egress --panel http://host:port
   bash install.sh --uninstall
+  bash install.sh --update
 
 Optional non-interactive flags:
   --name MACHINE_NAME
 EOF
 }
 
-info() {
-  printf "${YELLOW}[INFO]${NC} %s\n" "$1"
-}
-
-success() {
-  printf "${GREEN}[OK]${NC} %s\n" "$1"
-}
-
-warn() {
-  printf "${YELLOW}[WARN]${NC} %s\n" "$1"
-}
-
+info() { printf "${YELLOW}[INFO]${NC} %s\n" "$1"; }
+success() { printf "${GREEN}[OK]${NC} %s\n" "$1"; }
+warn() { printf "${YELLOW}[WARN]${NC} %s\n" "$1"; }
 fail() {
   printf "${RED}[ERROR]${NC} %s\n" "$1" >&2
   exit 1
@@ -86,6 +79,10 @@ parse_args() {
         ACTION="uninstall"
         shift
         ;;
+      --update)
+        ACTION="update"
+        shift
+        ;;
       -h|--help)
         usage
         exit 0
@@ -95,14 +92,14 @@ parse_args() {
         ;;
     esac
   done
-
-  if [ "$ACTION" = "uninstall" ]; then
-    return
-  fi
 }
 
 prompt_action_if_missing() {
   if [ -n "$ACTION" ]; then
+    return
+  fi
+  if [ -n "$INSTALL_TOKEN" ] || [ -n "$ROLE" ] || [ -n "$PANEL_URL" ]; then
+    ACTION="install"
     return
   fi
   [ -t 0 ] || ACTION="install"
@@ -111,12 +108,17 @@ prompt_action_if_missing() {
   fi
 
   while true; do
-    printf "请选择操作：1. 安装  2. 卸载 [1/2]: "
+    printf "请选择操作：\n"
+    printf "  1. 安装\n"
+    printf "  2. 卸载\n"
+    printf "  3. 更新\n"
+    printf "请输入序号 [1-3]: "
     read -r choice
     case "$choice" in
       1) ACTION="install"; break ;;
       2) ACTION="uninstall"; break ;;
-      *) warn "请输入 1 或 2。" ;;
+      3) ACTION="update"; break ;;
+      *) warn "请输入 1、2 或 3。" ;;
     esac
   done
 }
@@ -159,7 +161,6 @@ prompt_if_missing() {
     done
   fi
   PANEL_URL="${PANEL_URL%/}"
-
 }
 
 detect_os() {
@@ -172,21 +173,11 @@ detect_os() {
   local major="${version_id%%.*}"
 
   case "$os_id" in
-    ubuntu)
-      [ "${major:-0}" -ge 18 ] || fail "Ubuntu 18.04+ is required."
-      ;;
-    debian)
-      [ "${major:-0}" -ge 10 ] || fail "Debian 10+ is required."
-      ;;
-    centos)
-      [ "${major:-0}" -ge 7 ] || fail "CentOS 7+ is required."
-      ;;
-    rocky)
-      [ "${major:-0}" -ge 8 ] || fail "Rocky Linux 8+ is required."
-      ;;
-    *)
-      fail "Unsupported OS: ${os_id:-unknown}"
-      ;;
+    ubuntu) [ "${major:-0}" -ge 18 ] || fail "Ubuntu 18.04+ is required." ;;
+    debian) [ "${major:-0}" -ge 10 ] || fail "Debian 10+ is required." ;;
+    centos) [ "${major:-0}" -ge 7 ] || fail "CentOS 7+ is required." ;;
+    rocky) [ "${major:-0}" -ge 8 ] || fail "Rocky Linux 8+ is required." ;;
+    *) fail "Unsupported OS: ${os_id:-unknown}" ;;
   esac
 
   success "OS check passed: ${PRETTY_NAME:-$os_id}"
@@ -194,15 +185,9 @@ detect_os() {
 
 detect_arch() {
   case "$(uname -m)" in
-    x86_64|amd64)
-      ARCH="amd64"
-      ;;
-    aarch64|arm64)
-      ARCH="arm64"
-      ;;
-    *)
-      fail "Unsupported CPU architecture: $(uname -m). Only amd64 and arm64 are supported."
-      ;;
+    x86_64|amd64) ARCH="amd64" ;;
+    aarch64|arm64) ARCH="arm64" ;;
+    *) fail "Unsupported CPU architecture: $(uname -m). Only amd64 and arm64 are supported." ;;
   esac
 
   success "CPU architecture check passed: ${ARCH}"
@@ -213,12 +198,21 @@ prepare_dirs() {
   success "Directories are ready."
 }
 
-download_agent() {
+download_agent_to() {
+  local dest="$1"
   local url="${RELEASE_BASE_URL}/onlytun-agent-linux-${ARCH}"
   info "Downloading Agent binary: ${url}"
-  curl --retry 3 --retry-delay 2 -fL# "$url" -o "$AGENT_BIN" || fail "Failed to download Agent binary."
+  curl --retry 3 --retry-delay 2 -fL# "$url" -o "$dest" || fail "Failed to download Agent binary."
+}
+
+download_agent() {
+  download_agent_to "$AGENT_BIN"
   chmod +x "$AGENT_BIN" || fail "Failed to chmod Agent binary."
   success "Agent binary installed at ${AGENT_BIN}"
+}
+
+valid_ip() {
+  printf '%s' "$1" | grep -Eq '^([0-9]{1,3}\.){3}[0-9]{1,3}$|^[0-9a-fA-F:]+$'
 }
 
 fetch_public_ip() {
@@ -235,7 +229,7 @@ http://ifconfig.me/ip
   for ip_service in $services; do
     PUBLIC_IP="$(curl -fsS --connect-timeout 3 --max-time 6 "$ip_service" 2>/dev/null || true)"
     PUBLIC_IP="$(printf '%s' "$PUBLIC_IP" | tr -d '[:space:]')"
-    if printf '%s' "$PUBLIC_IP" | grep -Eq '^([0-9]{1,3}\.){3}[0-9]{1,3}$|^[0-9a-fA-F:]+$'; then
+    if [ -n "$PUBLIC_IP" ] && valid_ip "$PUBLIC_IP"; then
       break
     fi
   done
@@ -343,6 +337,37 @@ uninstall_agent() {
   success "OnlyTun Agent removed. Service, binary, and ${CONFIG_DIR} have been deleted."
 }
 
+update_agent() {
+  info "Updating OnlyTun Agent..."
+  detect_os
+  detect_arch
+  prepare_dirs
+
+  local tmp_file
+  tmp_file="$(mktemp /tmp/onlytun-agent.XXXXXX)" || fail "Failed to create temporary file."
+  download_agent_to "$tmp_file"
+  chmod +x "$tmp_file" || fail "Failed to chmod downloaded binary."
+
+  if [ -f "$AGENT_BIN" ]; then
+    cp "$AGENT_BIN" "${AGENT_BIN}.bak.$(date +%Y%m%d%H%M%S)" || fail "Failed to backup current Agent binary."
+  fi
+  cp "$tmp_file" "${AGENT_BIN}.new" || fail "Failed to stage updated Agent binary."
+  chmod +x "${AGENT_BIN}.new" || fail "Failed to chmod staged Agent binary."
+  mv -f "${AGENT_BIN}.new" "$AGENT_BIN" || fail "Failed to install updated Agent binary."
+  chmod +x "$AGENT_BIN" || fail "Failed to chmod updated Agent binary."
+  rm -f "$tmp_file"
+
+  systemctl daemon-reload || fail "systemctl daemon-reload failed."
+  systemctl restart onlytun-agent || fail "Failed to restart onlytun-agent."
+  sleep 3
+  if systemctl is-active --quiet onlytun-agent; then
+    success "OnlyTun Agent updated successfully. Config preserved at ${CONFIG_PATH}."
+  else
+    systemctl status onlytun-agent --no-pager || true
+    fail "OnlyTun Agent update finished but service is not active."
+  fi
+}
+
 main() {
   require_root
   require_command curl
@@ -353,10 +378,16 @@ main() {
 
   parse_args "$@"
   prompt_action_if_missing
-  if [ "$ACTION" = "uninstall" ]; then
-    uninstall_agent
-    exit 0
-  fi
+  case "$ACTION" in
+    uninstall)
+      uninstall_agent
+      exit 0
+      ;;
+    update)
+      update_agent
+      exit 0
+      ;;
+  esac
 
   prompt_if_missing
   validate_install_args

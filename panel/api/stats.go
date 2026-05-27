@@ -26,6 +26,16 @@ type statsRequest struct {
 	Stats     []service.AgentStatItem `json:"stats"`
 }
 
+type updateResultRequest struct {
+	TaskID  string `json:"task_id"`
+	Success bool   `json:"success"`
+	Error   string `json:"error"`
+}
+
+type updateClaimRequest struct {
+	TaskID string `json:"task_id"`
+}
+
 type registerRequest struct {
 	Name string `json:"name"`
 	Role string `json:"role"`
@@ -110,7 +120,69 @@ func (h *Handler) AgentConfig(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"rules": rules})
+
+	updateTask, err := h.Machines.PendingUpdateForMachine(machine.ID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"rules":       rules,
+		"update_task": updateTask,
+	})
+}
+
+func (h *Handler) AgentClaimUpdate(c *gin.Context) {
+	machine, ok := MachineFromContext(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	var req updateClaimRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		return
+	}
+
+	task, err := h.Machines.ClaimMachineUpdate(machine.ID, req.TaskID)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, service.ErrUpdateTaskNotFound) {
+			status = http.StatusNotFound
+		}
+		c.JSON(status, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"task": task})
+}
+
+func (h *Handler) AgentUpdateResult(c *gin.Context) {
+	machine, ok := MachineFromContext(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	var req updateResultRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		return
+	}
+
+	if err := h.Machines.FinishMachineUpdate(machine.ID, service.MachineUpdateResult{
+		TaskID:  req.TaskID,
+		Success: req.Success,
+		Error:   req.Error,
+	}); err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, service.ErrUpdateTaskNotFound) {
+			status = http.StatusNotFound
+		}
+		c.JSON(status, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
 func (h *Handler) AgentRegister(c *gin.Context) {

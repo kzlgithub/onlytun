@@ -54,6 +54,9 @@ export const panelApi = {
   metrics() {
     return api.get('/api/panel/metrics');
   },
+  updatePanel() {
+    return api.post('/api/panel/update');
+  },
 };
 
 export const machineApi = {
@@ -65,6 +68,9 @@ export const machineApi = {
   },
   update(id, payload) {
     return api.patch(`/api/machines/${id}`, payload);
+  },
+  updateScript(id) {
+    return api.post(`/api/machines/${id}/update-script`);
   },
   remove(id) {
     return api.delete(`/api/machines/${id}`);

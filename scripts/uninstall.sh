@@ -16,22 +16,16 @@ usage() {
   cat <<EOF
 Usage:
   bash uninstall.sh
-  bash uninstall.sh --install
-  bash uninstall.sh --uninstall agent [--yes] [--keep-config]
+  bash uninstall.sh --install agent|panel
+  bash uninstall.sh --uninstall agent|panel|all [--yes] [--keep-config]
+  bash uninstall.sh --update agent|panel|all
   bash uninstall.sh agent [--yes] [--keep-config]
-  bash uninstall.sh panel [--yes] [--keep-config]
-  bash uninstall.sh all   [--yes] [--keep-config]
 EOF
 }
 
-success() {
-  printf "${GREEN}[OK]${NC} %s\n" "$1"
-}
-
-warn() {
-  printf "${YELLOW}[WARN]${NC} %s\n" "$1"
-}
-
+info() { printf "${YELLOW}[INFO]${NC} %s\n" "$1"; }
+success() { printf "${GREEN}[OK]${NC} %s\n" "$1"; }
+warn() { printf "${YELLOW}[WARN]${NC} %s\n" "$1"; }
 fail() {
   printf "${RED}[ERROR]${NC} %s\n" "$1" >&2
   exit 1
@@ -56,6 +50,10 @@ parse_args() {
         ;;
       --uninstall)
         ACTION="uninstall"
+        shift
+        ;;
+      --update)
+        ACTION="update"
         shift
         ;;
       --yes|-y)
@@ -88,41 +86,34 @@ prompt_action_if_missing() {
   [ -t 0 ] || { usage; exit 1; }
 
   while true; do
-    printf "请选择操作：1. 安装  2. 卸载 [1/2]: "
+    printf "请选择操作：\n"
+    printf "  1. 安装\n"
+    printf "  2. 卸载\n"
+    printf "  3. 更新\n"
+    printf "请输入序号 [1-3]: "
     read -r choice
     case "$choice" in
       1) ACTION="install"; break ;;
       2) ACTION="uninstall"; break ;;
-      *) warn "请输入 1 或 2。" ;;
+      3) ACTION="update"; break ;;
+      *) warn "请输入 1、2 或 3。" ;;
     esac
   done
 }
 
-prompt_install_target_if_missing() {
-  if [ -n "$TARGET" ] && [ "$TARGET" != "all" ]; then
-    return
-  fi
-  [ -t 0 ] || fail "Install target is required in non-interactive mode."
-
-  while true; do
-    printf "请选择安装类型：1. 面板  2. 隧道机Agent [1/2]: "
-    read -r choice
-    case "$choice" in
-      1) TARGET="panel"; break ;;
-      2) TARGET="agent"; break ;;
-      *) warn "请输入 1 或 2。" ;;
-    esac
-  done
-}
-
-prompt_uninstall_target_if_missing() {
+prompt_target_if_missing() {
+  local purpose="$1"
   if [ -n "$TARGET" ]; then
     return
   fi
-  [ -t 0 ] || fail "Uninstall target is required in non-interactive mode."
+  [ -t 0 ] || fail "${purpose} target is required in non-interactive mode."
 
   while true; do
-    printf "请选择卸载类型：1. Agent  2. 面板  3. 全部 [1/2/3]: "
+    printf "请选择目标：\n"
+    printf "  1. Agent\n"
+    printf "  2. 面板\n"
+    printf "  3. 全部\n"
+    printf "请输入序号 [1-3]: "
     read -r choice
     case "$choice" in
       1) TARGET="agent"; break ;;
@@ -179,38 +170,57 @@ remove_config_if_requested() {
   success "/etc/onlytun removed."
 }
 
-run_install_flow() {
+run_remote_script() {
+  local script_name="$1"
+  local action_flag="$2"
   command -v curl >/dev/null 2>&1 || fail "Missing required command: curl"
-  prompt_install_target_if_missing
+  bash <(curl -fsSL "https://raw.githubusercontent.com/kzlgithub/onlytun/main/scripts/${script_name}") "$action_flag"
+}
+
+run_install_flow() {
+  prompt_target_if_missing "Install"
   case "$TARGET" in
-    panel)
-      bash <(curl -fsSL https://raw.githubusercontent.com/kzlgithub/onlytun/main/scripts/install-panel.sh) --install
-      ;;
+    panel) run_remote_script "install-panel.sh" "--install" ;;
+    agent) run_remote_script "install.sh" "--install" ;;
+    *) fail "Install target only supports agent or panel." ;;
+  esac
+}
+
+run_update_flow() {
+  prompt_target_if_missing "Update"
+  case "$TARGET" in
     agent)
-      bash <(curl -fsSL https://raw.githubusercontent.com/kzlgithub/onlytun/main/scripts/install.sh) --install
+      if [ -f /root/install.sh ]; then
+        bash /root/install.sh --update
+      else
+        run_remote_script "install.sh" "--update"
+      fi
       ;;
-    *)
-      fail "Install target only supports agent or panel."
+    panel)
+      if [ -f /root/install-panel.sh ]; then
+        bash /root/install-panel.sh --update
+      else
+        run_remote_script "install-panel.sh" "--update"
+      fi
       ;;
+    all)
+      TARGET="agent"; run_update_flow
+      TARGET="panel"; run_update_flow
+      ;;
+    *) fail "Update target only supports agent, panel, or all." ;;
   esac
 }
 
 run_uninstall_flow() {
-  prompt_uninstall_target_if_missing
+  prompt_target_if_missing "Uninstall"
   case "$TARGET" in
-    agent)
-      remove_agent
-      ;;
-    panel)
-      remove_panel
-      ;;
+    agent) remove_agent ;;
+    panel) remove_panel ;;
     all)
       remove_agent
       remove_panel
       ;;
-    *)
-      fail "Uninstall target only supports agent, panel, or all."
-      ;;
+    *) fail "Uninstall target only supports agent, panel, or all." ;;
   esac
 
   systemctl daemon-reload >/dev/null 2>&1 || true
@@ -223,11 +233,12 @@ main() {
   parse_args "$@"
   prompt_action_if_missing
 
-  if [ "$ACTION" = "install" ]; then
-    run_install_flow
-  else
-    run_uninstall_flow
-  fi
+  case "$ACTION" in
+    install) run_install_flow ;;
+    uninstall) run_uninstall_flow ;;
+    update) run_update_flow ;;
+    *) fail "Unknown action: ${ACTION}" ;;
+  esac
 }
 
 main "$@"

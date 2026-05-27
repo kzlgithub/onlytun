@@ -72,6 +72,22 @@ func (h *Handler) DeleteMachine(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
+func (h *Handler) RequestMachineUpdate(c *gin.Context) {
+	task, err := h.Machines.RequestMachineUpdate(c.Param("id"))
+	if err != nil {
+		status := http.StatusInternalServerError
+		switch {
+		case errors.Is(err, service.ErrMachineNotFound):
+			status = http.StatusNotFound
+		case errors.Is(err, service.ErrMachineOffline):
+			status = http.StatusBadRequest
+		}
+		c.JSON(status, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"task": task})
+}
+
 func (h *Handler) GetInstallScript(c *gin.Context) {
 	scheme := "http"
 	if forwarded := strings.TrimSpace(c.GetHeader("X-Forwarded-Proto")); forwarded != "" {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"flag"
@@ -9,7 +10,9 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"os/signal"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -27,7 +30,23 @@ const (
 )
 
 type panelConfigResponse struct {
-	Rules []config.RuleConfig `json:"rules"`
+	Rules      []config.RuleConfig `json:"rules"`
+	UpdateTask *panelUpdateTask    `json:"update_task"`
+}
+
+type panelUpdateTask struct {
+	ID   string `json:"id"`
+	Kind string `json:"kind"`
+}
+
+type updateResultRequest struct {
+	TaskID  string `json:"task_id"`
+	Success bool   `json:"success"`
+	Error   string `json:"error"`
+}
+
+type updateClaimRequest struct {
+	TaskID string `json:"task_id"`
 }
 
 type ingressRuntime struct {
@@ -136,10 +155,11 @@ func (a *agentRuntime) runConfigSyncLoop(ctx context.Context) {
 }
 
 func (a *agentRuntime) syncConfig(ctx context.Context) error {
-	rules, err := a.fetchPanelRules(ctx)
+	payload, err := a.fetchPanelConfig(ctx)
 	if err != nil {
 		return err
 	}
+	rules := payload.Rules
 
 	a.mu.Lock()
 	a.cfg.Rules = cloneRules(rules)
@@ -163,10 +183,14 @@ func (a *agentRuntime) syncConfig(ctx context.Context) error {
 		}
 	}
 
+	if payload.UpdateTask != nil {
+		a.handleUpdateTask(payload.UpdateTask)
+	}
+
 	return nil
 }
 
-func (a *agentRuntime) fetchPanelRules(ctx context.Context) ([]config.RuleConfig, error) {
+func (a *agentRuntime) fetchPanelConfig(ctx context.Context) (*panelConfigResponse, error) {
 	u, err := url.Parse(strings.TrimRight(a.cfg.PanelURL, "/") + "/api/agent/config")
 	if err != nil {
 		return nil, err
@@ -197,7 +221,170 @@ func (a *agentRuntime) fetchPanelRules(ctx context.Context) ([]config.RuleConfig
 		return nil, err
 	}
 
-	return payload.Rules, nil
+	return &payload, nil
+}
+
+func (a *agentRuntime) handleUpdateTask(task *panelUpdateTask) {
+	if task == nil || strings.TrimSpace(task.ID) == "" {
+		return
+	}
+	if task.Kind != "" && task.Kind != "agent" {
+		a.reportUpdateResult(task.ID, false, "unsupported update task kind: "+task.Kind)
+		return
+	}
+
+	if err := a.claimUpdateTask(task.ID); err != nil {
+		logWarnf("agent update task %s claim failed: %v", task.ID, err)
+		return
+	}
+
+	if err := scheduleAgentUpdate(a.cfg.PanelURL, a.cfg.Token, task.ID); err != nil {
+		logWarnf("agent update task %s failed to schedule: %v", task.ID, err)
+		a.reportUpdateResult(task.ID, false, err.Error())
+		return
+	}
+
+	logInfof("agent update task %s scheduled", task.ID)
+}
+
+func (a *agentRuntime) claimUpdateTask(taskID string) error {
+	body, err := json.Marshal(updateClaimRequest{TaskID: taskID})
+	if err != nil {
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	endpoint := strings.TrimRight(a.cfg.PanelURL, "/") + "/api/agent/update-claim"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+a.cfg.Token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := a.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("panel returned status %s", resp.Status)
+	}
+	return nil
+}
+
+func (a *agentRuntime) reportUpdateResult(taskID string, success bool, errText string) {
+	body, err := json.Marshal(updateResultRequest{
+		TaskID:  taskID,
+		Success: success,
+		Error:   errText,
+	})
+	if err != nil {
+		logWarnf("encode update result failed: %v", err)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	endpoint := strings.TrimRight(a.cfg.PanelURL, "/") + "/api/agent/update-result"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		logWarnf("build update result request failed: %v", err)
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+a.cfg.Token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := a.httpClient.Do(req)
+	if err != nil {
+		logWarnf("post update result failed: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		logWarnf("post update result returned %s", resp.Status)
+	}
+}
+
+func scheduleAgentUpdate(panelURL, token, taskID string) error {
+	if runtime.GOOS != "linux" {
+		return fmt.Errorf("agent update is only supported on linux systemd hosts")
+	}
+
+	script := `#!/bin/bash
+set -u
+LOG=/var/log/onlytun-agent-update.log
+PANEL_URL=` + shellQuote(strings.TrimRight(panelURL, "/")) + `
+TOKEN=` + shellQuote(token) + `
+TASK_ID=` + shellQuote(taskID) + `
+
+json_escape() {
+  printf '%s' "$1" | sed ':a;N;$!ba;s/\\/\\\\/g;s/"/\\"/g;s/\n/\\n/g'
+}
+
+report_result() {
+  local success="$1"
+  local error_text="${2:-}"
+  local escaped_error
+  escaped_error="$(json_escape "$error_text")"
+  curl -fsS -X POST "${PANEL_URL}/api/agent/update-result" \
+    -H "Authorization: Bearer ${TOKEN}" \
+    -H "Content-Type: application/json" \
+    -d "{\"task_id\":\"${TASK_ID}\",\"success\":${success},\"error\":\"${escaped_error}\"}" >/dev/null 2>&1 || true
+}
+
+run_update() {
+if [ -f /root/install.sh ]; then
+  bash /root/install.sh --update
+else
+  bash <(curl -fsSL https://raw.githubusercontent.com/kzlgithub/onlytun/main/scripts/install.sh) --update
+fi
+}
+
+{
+  echo "[INFO] onlytun agent update started at $(date -Is)"
+  output="$(run_update 2>&1)"
+  code=$?
+  printf '%s\n' "$output"
+  if [ "$code" -eq 0 ]; then
+    report_result true ""
+    echo "[OK] onlytun agent update finished at $(date -Is)"
+  else
+    short_output="$(printf '%s' "$output" | tail -c 1200)"
+    report_result false "agent update failed with exit ${code}: ${short_output}"
+    echo "[ERROR] onlytun agent update failed with exit ${code}"
+  fi
+  rm -f "$0"
+} >>"$LOG" 2>&1
+`
+	file, err := os.CreateTemp("", "onlytun-agent-update-*.sh")
+	if err != nil {
+		return err
+	}
+	path := file.Name()
+	if _, err := file.WriteString(script); err != nil {
+		_ = file.Close()
+		_ = os.Remove(path)
+		return err
+	}
+	if err := file.Close(); err != nil {
+		_ = os.Remove(path)
+		return err
+	}
+	if err := os.Chmod(path, 0o700); err != nil {
+		_ = os.Remove(path)
+		return err
+	}
+
+	command := "nohup /bin/bash -c " + shellQuote("sleep 1\n/bin/bash "+shellQuote(path)) + " >/dev/null 2>&1 &"
+	return exec.Command("/bin/bash", "-c", command).Start()
+}
+
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
 }
 
 func (a *agentRuntime) applyIngressRules(newRules []config.RuleConfig) applyResult {

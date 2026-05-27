@@ -42,6 +42,7 @@
           :rule-store="ruleStore"
           @copy-ip="copyIP"
           @rename="handleRename"
+          @update-script="handleUpdateScript"
           @delete="handleDelete"
         />
 
@@ -52,6 +53,7 @@
           :rule-store="ruleStore"
           @copy-ip="copyIP"
           @rename="handleRename"
+          @update-script="handleUpdateScript"
           @delete="handleDelete"
         />
       </div>
@@ -81,8 +83,18 @@
 
 <script setup>
 import { computed, defineComponent, h, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
-import { ElButton, ElMessage, ElMessageBox, ElProgress, ElTag, ElTooltip } from 'element-plus';
-import { CopyDocument } from '@element-plus/icons-vue';
+import {
+  ElButton,
+  ElDropdown,
+  ElDropdownItem,
+  ElDropdownMenu,
+  ElMessage,
+  ElMessageBox,
+  ElProgress,
+  ElTag,
+  ElTooltip,
+} from 'element-plus';
+import { CopyDocument, MoreFilled } from '@element-plus/icons-vue';
 import { useMachineStore } from '../stores/machine';
 import { useRuleStore } from '../stores/rule';
 import { formatBytes, formatSpeed, roleLabel } from '../utils/format';
@@ -275,6 +287,39 @@ async function handleRename(machine) {
   ElMessage.success('名称已更新');
 }
 
+async function handleUpdateScript(machine) {
+  if (localDemoMode && machine.fake) {
+    updateDemoMachine(machine.id, {
+      last_update_task: {
+        id: `demo-update-${Date.now()}`,
+        status: 'success',
+        kind: 'agent',
+        requested_at: new Date().toISOString(),
+      },
+    });
+    ElMessage.success('演示更新已完成');
+    return;
+  }
+
+  if (machine.fake) {
+    ElMessage.info('演示卡片不支持下发更新');
+    return;
+  }
+
+  await ElMessageBox.confirm(
+    `确定要更新隧道机“${machine.name}”吗？该机器上的 Agent 会短暂重启。`,
+    '更新脚本',
+    {
+      type: 'warning',
+      confirmButtonText: '下发更新',
+      cancelButtonText: '取消',
+    },
+  );
+
+  await machineStore.updateScript(machine.id);
+  ElMessage.success('更新任务已下发，Agent 下一次同步配置时会执行');
+}
+
 async function handleDelete(machine) {
   if (localDemoMode && machine.fake) {
     await ElMessageBox.confirm(`确定删除演示卡片“${machine.name}”吗？`, '删除演示卡片', {
@@ -329,7 +374,7 @@ const MachineGroup = defineComponent({
     machines: { type: Array, required: true },
     ruleStore: { type: Object, required: true },
   },
-  emits: ['copy-ip', 'rename', 'delete'],
+  emits: ['copy-ip', 'rename', 'update-script', 'delete'],
   setup(props, { emit }) {
     const renderMachine = (machine) =>
       h(
@@ -384,13 +429,35 @@ const MachineGroup = defineComponent({
             progressRow('内存', Number(machine.mem_percent || 0), 'mem'),
             progressRow('硬盘', optionalPercent(machine.disk_percent), 'disk'),
             detailRow('网速', machineSpeed(machine, props.ruleStore)),
+            detailRow('更新', updateTaskLabel(machine.last_update_task)),
             detailRow('在线时间', machineOnlineTime(machine, nowTick.value)),
           ]),
 
-          h('div', { class: 'machine-actions' }, [
-            h(ElButton, { link: true, type: 'primary', onClick: () => emit('rename', machine) }, () => '改名'),
-            h(ElButton, { link: true, type: 'danger', onClick: () => emit('delete', machine) }, () => '删除'),
-          ]),
+          h(
+            'div',
+            { class: 'machine-actions' },
+            h(
+              ElDropdown,
+              {
+                trigger: 'click',
+                onCommand: (command) => {
+                  if (command === 'rename') emit('rename', machine);
+                  if (command === 'update') emit('update-script', machine);
+                  if (command === 'delete') emit('delete', machine);
+                },
+              },
+              {
+                default: () =>
+                  h(ElButton, { class: 'more-action-btn', circle: true, icon: MoreFilled }, () => ''),
+                dropdown: () =>
+                  h(ElDropdownMenu, null, () => [
+                    h(ElDropdownItem, { command: 'rename' }, () => '改名'),
+                    h(ElDropdownItem, { command: 'update', disabled: !machine.online }, () => '更新脚本'),
+                    h(ElDropdownItem, { command: 'delete', class: 'danger-dropdown-item' }, () => '删除'),
+                  ]),
+              },
+            ),
+          ),
         ],
       );
 
@@ -434,6 +501,18 @@ function detailRow(label, value) {
     h('span', { class: 'detail-label' }, label),
     h('strong', value || '--'),
   ]);
+}
+
+function updateTaskLabel(task) {
+  if (!task) {
+    return '未更新';
+  }
+  const status = task.status || '';
+  if (status === 'pending') return '等待执行';
+  if (status === 'running') return '执行中';
+  if (status === 'success') return '已下发';
+  if (status === 'failed') return '失败';
+  return status || '未知';
 }
 
 function optionalPercent(value) {
@@ -570,7 +649,13 @@ function loadDemoMachines() {
       return buildDemoMachines();
     }
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) && parsed.length > 0 ? parsed : buildDemoMachines();
+    if (!Array.isArray(parsed) || parsed.length === 0) {
+      return buildDemoMachines();
+    }
+    if (parsed.some((item) => !item.demo_net || !item.demo_speed)) {
+      return buildDemoMachines();
+    }
+    return parsed;
   } catch {
     return buildDemoMachines();
   }
@@ -939,6 +1024,14 @@ function buildDemoMachines() {
   justify-content: flex-end;
   gap: 4px;
   margin-top: 14px;
+}
+
+.machines-page .more-action-btn {
+  border-color: rgba(84, 112, 150, 0.18);
+}
+
+.danger-dropdown-item {
+  color: #f56c6c;
 }
 
 .machines-page .empty-group {

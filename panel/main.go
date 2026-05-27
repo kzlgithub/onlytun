@@ -72,6 +72,7 @@ func main() {
 	admin.GET("/machines", handler.ListMachines)
 	admin.POST("/machines/generate-token", handler.GenerateMachineToken)
 	admin.PATCH("/machines/:id", handler.UpdateMachine)
+	admin.POST("/machines/:id/update-script", handler.RequestMachineUpdate)
 	admin.DELETE("/machines/:id", handler.DeleteMachine)
 	admin.GET("/machines/install-script", handler.GetInstallScript)
 	admin.GET("/rules", handler.ListRules)
@@ -81,6 +82,7 @@ func main() {
 	admin.PATCH("/rules/:id/toggle", handler.ToggleRule)
 	admin.GET("/stats/:rule_id", handler.GetRuleStats)
 	admin.GET("/panel/metrics", handler.GetPanelMetrics)
+	admin.POST("/panel/update", handler.UpdatePanel)
 	admin.POST("/settings/password", handler.ChangePassword)
 
 	agentGroup := apiGroup.Group("/agent")
@@ -89,6 +91,8 @@ func main() {
 	protectedAgent.Use(handler.RequireMachineToken())
 	protectedAgent.POST("/heartbeat", handler.AgentHeartbeat)
 	protectedAgent.POST("/stats", handler.AgentStats)
+	protectedAgent.POST("/update-claim", handler.AgentClaimUpdate)
+	protectedAgent.POST("/update-result", handler.AgentUpdateResult)
 	protectedAgent.GET("/config", handler.AgentConfig)
 
 	staticFS, err := fs.Sub(webFS, "web/dist")
@@ -122,7 +126,7 @@ func main() {
 
 func skipAccessLog(c *gin.Context) bool {
 	switch c.Request.URL.Path {
-	case "/api/agent/heartbeat", "/api/agent/stats", "/api/agent/config":
+	case "/api/agent/heartbeat", "/api/agent/stats", "/api/agent/config", "/api/agent/update-claim", "/api/agent/update-result":
 		return true
 	default:
 		return false

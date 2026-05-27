@@ -68,6 +68,19 @@ type InstallToken struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+type MachineUpdateTask struct {
+	ID          string     `gorm:"primaryKey;size:36" json:"id"`
+	MachineID   string     `gorm:"size:36;not null;index" json:"machine_id"`
+	Kind        string     `gorm:"size:32;not null" json:"kind"`
+	Status      string     `gorm:"size:32;not null;index" json:"status"`
+	Error       string     `gorm:"type:text" json:"error"`
+	RequestedAt time.Time  `gorm:"index" json:"requested_at"`
+	StartedAt   *time.Time `json:"started_at,omitempty"`
+	FinishedAt  *time.Time `json:"finished_at,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
+}
+
 type SystemSetting struct {
 	Key       string    `gorm:"primaryKey;size:64" json:"key"`
 	Value     string    `gorm:"type:text;not null" json:"value"`
@@ -85,6 +98,22 @@ func (m *Machine) BeforeCreate(tx *gorm.DB) error {
 func (r *ForwardRule) BeforeCreate(tx *gorm.DB) error {
 	if r.ID == "" {
 		r.ID = uuid.NewString()
+	}
+	return nil
+}
+
+func (t *MachineUpdateTask) BeforeCreate(tx *gorm.DB) error {
+	if t.ID == "" {
+		t.ID = uuid.NewString()
+	}
+	if t.Kind == "" {
+		t.Kind = "agent"
+	}
+	if t.Status == "" {
+		t.Status = "pending"
+	}
+	if t.RequestedAt.IsZero() {
+		t.RequestedAt = time.Now()
 	}
 	return nil
 }
@@ -113,6 +142,7 @@ func AutoMigrate(gdb *gorm.DB) error {
 		&ForwardRule{},
 		&TrafficStat{},
 		&InstallToken{},
+		&MachineUpdateTask{},
 		&SystemSetting{},
 	)
 }

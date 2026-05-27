@@ -106,6 +106,14 @@ export const useMachineStore = defineStore('machines', {
       }
       return updated;
     },
+    async updateScript(id) {
+      const { data } = await machineApi.updateScript(id);
+      const current = this.machines.find((item) => item.id === id);
+      if (current && data.task) {
+        current.last_update_task = data.task;
+      }
+      return data.task;
+    },
     async deleteMachine(id) {
       await machineApi.remove(id);
       this.machines = this.machines.filter((item) => item.id !== id);

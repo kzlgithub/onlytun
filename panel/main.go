@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"embed"
+	"fmt"
 	"io/fs"
 	"log"
 	"net/http"
@@ -18,6 +19,8 @@ import (
 	paneldb "github.com/onlytun/panel/db"
 	"github.com/onlytun/panel/service"
 )
+
+var Version = "dev"
 
 const (
 	defaultPort       = 8080
@@ -35,6 +38,11 @@ const (
 var webFS embed.FS
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "--version" {
+		fmt.Println(Version)
+		return
+	}
+
 	password := strings.TrimSpace(os.Getenv("ONLYTUN_PASSWORD"))
 	if password == "" {
 		log.Fatal("ONLYTUN_PASSWORD must be set")
@@ -57,6 +65,7 @@ func main() {
 		log.Fatalf("load admin password failed: %v", err)
 	}
 	handler := api.NewHandler(machineService, ruleService, statsService, settingsService, passwordHash)
+	api.PanelVersion = Version
 
 	router := gin.New()
 	router.Use(gin.LoggerWithConfig(gin.LoggerConfig{Skip: skipAccessLog}), gin.Recovery())
@@ -82,6 +91,7 @@ func main() {
 	admin.PATCH("/rules/:id/toggle", handler.ToggleRule)
 	admin.GET("/stats/:rule_id", handler.GetRuleStats)
 	admin.GET("/panel/metrics", handler.GetPanelMetrics)
+	admin.GET("/panel/version", handler.GetPanelVersion)
 	admin.POST("/panel/update", handler.UpdatePanel)
 	admin.POST("/settings/password", handler.ChangePassword)
 

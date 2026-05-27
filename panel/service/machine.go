@@ -372,7 +372,7 @@ func (s *MachineService) AuthenticateMachineToken(token string) (*paneldb.Machin
 	return &machine, nil
 }
 
-func (s *MachineService) UpdateHeartbeat(machine *paneldb.Machine, role, ip string, cpuPercent, memPercent, diskPercent float64, uptimeSec, netBytesUp, netBytesDown uint64) error {
+func (s *MachineService) UpdateHeartbeat(machine *paneldb.Machine, role, ip, agentVersion string, cpuPercent, memPercent, diskPercent float64, uptimeSec, netBytesUp, netBytesDown uint64) error {
 	if machine == nil {
 		return ErrMachineNotFound
 	}
@@ -397,6 +397,9 @@ func (s *MachineService) UpdateHeartbeat(machine *paneldb.Machine, role, ip stri
 		"net_bytes_up":   netBytesUp,
 		"net_bytes_down": netBytesDown,
 		"last_heartbeat": time.Now(),
+	}
+	if strings.TrimSpace(agentVersion) != "" {
+		updates["agent_version"] = strings.TrimSpace(agentVersion)
 	}
 	if !machine.Online || machine.OnlineSince.IsZero() {
 		updates["online_since"] = time.Now()

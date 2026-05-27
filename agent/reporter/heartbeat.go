@@ -26,6 +26,7 @@ type heartbeatPayload struct {
 	MachineID    string  `json:"machine_id"`
 	Role         string  `json:"role"`
 	IP           string  `json:"ip"`
+	AgentVersion string  `json:"agent_version"`
 	CPUPercent   float64 `json:"cpu_percent"`
 	MemPercent   float64 `json:"mem_percent"`
 	DiskPercent  float64 `json:"disk_percent"`
@@ -40,6 +41,7 @@ type Reporter struct {
 	machineID string
 	role      string
 	token     string
+	version   string
 	client    *http.Client
 
 	mu      sync.RWMutex
@@ -48,12 +50,17 @@ type Reporter struct {
 }
 
 // NewReporter 创建 Reporter。
-func NewReporter(panelURL, machineID, role, token string) *Reporter {
+func NewReporter(panelURL, machineID, role, token string, version ...string) *Reporter {
+	reportVersion := ""
+	if len(version) > 0 {
+		reportVersion = version[0]
+	}
 	return &Reporter{
 		panelURL:  strings.TrimRight(panelURL, "/"),
 		machineID: machineID,
 		role:      role,
 		token:     token,
+		version:   strings.TrimSpace(reportVersion),
 		client: &http.Client{
 			Timeout: 10 * time.Second,
 		},
@@ -114,6 +121,7 @@ func (r *Reporter) sendHeartbeat(ctx context.Context) {
 		MachineID:    r.machineID,
 		Role:         r.role,
 		IP:           detectPublicIP(),
+		AgentVersion: r.version,
 		CPUPercent:   firstCPUPercent(cpuPercent),
 		MemPercent:   memStats.UsedPercent,
 		DiskPercent:  diskPercent,

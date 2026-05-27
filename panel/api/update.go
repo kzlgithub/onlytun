@@ -11,6 +11,12 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+var PanelVersion = "dev"
+
+func (h *Handler) GetPanelVersion(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{"version": PanelVersion})
+}
+
 func (h *Handler) UpdatePanel(c *gin.Context) {
 	if runtime.GOOS != "linux" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "panel update is only supported on linux systemd hosts"})

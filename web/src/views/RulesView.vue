@@ -7,7 +7,6 @@
             <h3 class="section-title">转发规则</h3>
             <p class="section-meta">
               共 {{ ruleStore.rules.length }} 条，{{ ruleStore.enabledRules.length }} 条启用
-              <span v-if="refreshing"> · 正在刷新</span>
             </p>
           </div>
           <div class="toolbar rules-toolbar">
@@ -231,7 +230,7 @@ async function deleteRule(rule) {
 }
 
 onMounted(async () => {
-  await loadData({ initial: true });
+  await loadData({ initial: ruleStore.rules.length === 0 });
   timer = window.setInterval(() => loadData(), 5000);
 });
 

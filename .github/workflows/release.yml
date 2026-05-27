@@ -65,7 +65,7 @@ jobs:
           GOOS: linux
           GOARCH: ${{ matrix.arch }}
         run: |
-          go build -ldflags="-s -w" -o ../dist/onlytun-agent-linux-${GOARCH} .
+          go build -ldflags="-s -w -X main.Version=${{ github.ref_name }}" -o ../dist/onlytun-agent-linux-${GOARCH} .
 
       - name: Build panel
         working-directory: panel
@@ -75,7 +75,7 @@ jobs:
           GOARCH: ${{ matrix.arch }}
           CC: ${{ matrix.cc }}
         run: |
-          go build -ldflags="-s -w" -o ../dist/onlytun-panel-linux-${GOARCH} .
+          go build -ldflags="-s -w -X main.Version=${{ github.ref_name }}" -o ../dist/onlytun-panel-linux-${GOARCH} .
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1

@@ -23,6 +23,7 @@ type Machine struct {
 	Token         string    `gorm:"size:128;not null;uniqueIndex" json:"token"`
 	Online        bool      `gorm:"not null;default:false" json:"online"`
 	OS            string    `gorm:"size:64" json:"os"`
+	AgentVersion  string    `gorm:"size:64" json:"agent_version"`
 	CPUPercent    float64   `gorm:"not null;default:0" json:"cpu_percent"`
 	MemPercent    float64   `gorm:"not null;default:0" json:"mem_percent"`
 	DiskPercent   float64   `gorm:"not null;default:0" json:"disk_percent"`

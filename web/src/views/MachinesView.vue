@@ -94,7 +94,7 @@ import {
   ElTag,
   ElTooltip,
 } from 'element-plus';
-import { CopyDocument, MoreFilled } from '@element-plus/icons-vue';
+import { ArrowDown, CopyDocument, RefreshRight } from '@element-plus/icons-vue';
 import { useMachineStore } from '../stores/machine';
 import { useRuleStore } from '../stores/rule';
 import { formatBytes, formatSpeed, roleLabel } from '../utils/format';
@@ -289,15 +289,40 @@ async function handleRename(machine) {
 
 async function handleUpdateScript(machine) {
   if (localDemoMode && machine.fake) {
+    const taskId = `demo-update-${Date.now()}`;
     updateDemoMachine(machine.id, {
       last_update_task: {
-        id: `demo-update-${Date.now()}`,
-        status: 'success',
+        id: taskId,
+        status: 'pending',
         kind: 'agent',
         requested_at: new Date().toISOString(),
       },
     });
-    ElMessage.success('演示更新已完成');
+    window.setTimeout(() => {
+      updateDemoMachine(machine.id, {
+        last_update_task: {
+          id: taskId,
+          status: 'running',
+          kind: 'agent',
+          requested_at: new Date().toISOString(),
+          started_at: new Date().toISOString(),
+        },
+      });
+    }, 1600);
+    window.setTimeout(() => {
+      updateDemoMachine(machine.id, {
+        last_update_task: {
+          id: taskId,
+          status: 'success',
+          kind: 'agent',
+          requested_at: new Date().toISOString(),
+          finished_at: new Date().toISOString(),
+        },
+        agent_version: 'v1.2.5',
+      });
+      ElMessage.success('演示更新已完成');
+    }, 5200);
+    ElMessage.success('演示更新任务已下发');
     return;
   }
 
@@ -354,7 +379,7 @@ async function handleDelete(machine) {
 }
 
 onMounted(async () => {
-  await loadData({ initial: true });
+  await loadData({ initial: machineStore.machines.length === 0 });
   await machineStore.fetchInstallCommands();
   timer = window.setInterval(() => {
     nowTick.value = Date.now();
@@ -376,13 +401,15 @@ const MachineGroup = defineComponent({
   },
   emits: ['copy-ip', 'rename', 'update-script', 'delete'],
   setup(props, { emit }) {
-    const renderMachine = (machine) =>
-      h(
+    const renderMachine = (machine) => {
+      const updating = isUpdating(machine.last_update_task);
+      return h(
         'article',
         {
           class: [
             'machine-card',
             machine.online ? 'is-online' : 'is-offline',
+            updating ? 'is-updating' : '',
             'is-expanded',
           ],
         },
@@ -393,7 +420,7 @@ const MachineGroup = defineComponent({
               h('div', [
                 h('h4', { class: 'machine-name' }, machine.name || '未命名机器'),
                 h('div', { class: 'machine-ip-line' }, [
-                  h('span', machine.ip || '--'),
+                  h('span', { class: 'machine-ip-text' }, machine.ip || '--'),
                   h(
                     ElTooltip,
                     { content: '复制 IP', placement: 'top' },
@@ -405,12 +432,14 @@ const MachineGroup = defineComponent({
                             class: 'copy-ip-btn',
                             link: true,
                             icon: CopyDocument,
+                            disabled: updating,
                             onClick: () => emit('copy-ip', machine),
                           },
                           () => '',
                         ),
                     },
                   ),
+                  h('span', { class: 'agent-version-inline' }, `Agent ${machine.agent_version || 'unknown'}`),
                 ]),
               ]),
             ]),
@@ -419,19 +448,34 @@ const MachineGroup = defineComponent({
             ),
           ]),
 
-          h('div', { class: 'compact-metrics' }, [
-            metricPill('上传', machineTraffic(machine).up, 'blue'),
-            metricPill('下载', machineTraffic(machine).down, 'green'),
-          ]),
+          updating
+            ? h('div', { class: 'machine-update-state' }, [
+                h(RefreshRight, { class: 'update-spin-icon' }),
+                h('div', [
+                  h('strong', updateTaskLabel(machine.last_update_task)),
+                  h('p', updateTaskHint(machine.last_update_task)),
+                ]),
+                h('div', { class: 'update-steps' }, [
+                  updateStep('下发任务', true),
+                  updateStep('Agent 执行', machine.last_update_task?.status === 'running'),
+                  updateStep('重启回报', false),
+                ]),
+              ])
+            : h('div', null, [
+                h('div', { class: 'compact-metrics' }, [
+                  metricPill('上传', machineTraffic(machine).up, 'blue'),
+                  metricPill('下载', machineTraffic(machine).down, 'green'),
+                ]),
 
-          h('div', { class: 'machine-detail' }, [
-            progressRow('CPU', Number(machine.cpu_percent || 0), 'cpu'),
-            progressRow('内存', Number(machine.mem_percent || 0), 'mem'),
-            progressRow('硬盘', optionalPercent(machine.disk_percent), 'disk'),
-            detailRow('网速', machineSpeed(machine, props.ruleStore)),
-            detailRow('更新', updateTaskLabel(machine.last_update_task)),
-            detailRow('在线时间', machineOnlineTime(machine, nowTick.value)),
-          ]),
+                h('div', { class: 'machine-detail' }, [
+                  progressRow('CPU', Number(machine.cpu_percent || 0), 'cpu'),
+                  progressRow('内存', Number(machine.mem_percent || 0), 'mem'),
+                  progressRow('硬盘', optionalPercent(machine.disk_percent), 'disk'),
+                  detailRow('网速', machineSpeed(machine, props.ruleStore)),
+                  detailRow('更新', updateTaskLabel(machine.last_update_task)),
+                  detailRow('在线时间', machineOnlineTime(machine, nowTick.value)),
+                ]),
+              ]),
 
           h(
             'div',
@@ -440,6 +484,7 @@ const MachineGroup = defineComponent({
               ElDropdown,
               {
                 trigger: 'click',
+                disabled: updating,
                 onCommand: (command) => {
                   if (command === 'rename') emit('rename', machine);
                   if (command === 'update') emit('update-script', machine);
@@ -448,7 +493,10 @@ const MachineGroup = defineComponent({
               },
               {
                 default: () =>
-                  h(ElButton, { class: 'more-action-btn', circle: true, icon: MoreFilled }, () => ''),
+                  h(ElButton, { class: 'more-action-btn', disabled: updating }, () => [
+                    h('span', '操作'),
+                    h(ArrowDown, { class: 'action-arrow' }),
+                  ]),
                 dropdown: () =>
                   h(ElDropdownMenu, null, () => [
                     h(ElDropdownItem, { command: 'rename' }, () => '改名'),
@@ -460,6 +508,7 @@ const MachineGroup = defineComponent({
           ),
         ],
       );
+    };
 
     return () =>
       h('section', { class: 'machine-group' }, [
@@ -503,6 +552,14 @@ function detailRow(label, value) {
   ]);
 }
 
+function updateStep(label, active) {
+  return h('span', { class: ['update-step', active ? 'active' : ''] }, label);
+}
+
+function isUpdating(task) {
+  return task?.status === 'pending' || task?.status === 'running';
+}
+
 function updateTaskLabel(task) {
   if (!task) {
     return '未更新';
@@ -510,9 +567,19 @@ function updateTaskLabel(task) {
   const status = task.status || '';
   if (status === 'pending') return '等待执行';
   if (status === 'running') return '执行中';
-  if (status === 'success') return '已下发';
+  if (status === 'success') return '已更新';
   if (status === 'failed') return '失败';
   return status || '未知';
+}
+
+function updateTaskHint(task) {
+  if (task?.status === 'pending') {
+    return '等待 Agent 下一次配置同步，卡片暂时锁定。';
+  }
+  if (task?.status === 'running') {
+    return 'Agent 正在下载新版、替换二进制并重启。';
+  }
+  return '更新任务处理中。';
 }
 
 function optionalPercent(value) {
@@ -603,6 +670,7 @@ function addDemoMachine(role) {
     ip: isIngress ? `203.0.113.${20 + index}` : `198.51.100.${20 + index}`,
     online: true,
     os: 'Ubuntu 22.04',
+    agent_version: 'v1.2.5',
     cpu_percent: Math.min(95, 8 + index * 7),
     mem_percent: Math.min(92, 18 + index * 9),
     disk_percent: Math.min(88, 24 + index * 6),
@@ -652,7 +720,7 @@ function loadDemoMachines() {
     if (!Array.isArray(parsed) || parsed.length === 0) {
       return buildDemoMachines();
     }
-    if (parsed.some((item) => !item.demo_net || !item.demo_speed)) {
+    if (parsed.some((item) => !item.demo_net || !item.demo_speed || !item.agent_version)) {
       return buildDemoMachines();
     }
     return parsed;
@@ -681,6 +749,7 @@ function buildDemoMachines() {
       ip: '203.0.113.21',
       online: true,
       os: 'Ubuntu 22.04',
+      agent_version: 'v1.2.5',
       cpu_percent: 7,
       mem_percent: 18,
       disk_percent: 36,
@@ -701,6 +770,7 @@ function buildDemoMachines() {
       ip: '203.0.113.35',
       online: true,
       os: 'Debian 12',
+      agent_version: 'v1.2.5',
       cpu_percent: 32,
       mem_percent: 44,
       disk_percent: 51,
@@ -721,6 +791,7 @@ function buildDemoMachines() {
       ip: '203.0.113.49',
       online: true,
       os: 'Ubuntu 24.04',
+      agent_version: 'v1.2.4',
       cpu_percent: 61,
       mem_percent: 57,
       disk_percent: 73,
@@ -741,6 +812,7 @@ function buildDemoMachines() {
       ip: '203.0.113.78',
       online: false,
       os: 'Rocky Linux 9',
+      agent_version: 'v1.2.3',
       cpu_percent: 0,
       mem_percent: 0,
       disk_percent: 42,
@@ -761,6 +833,7 @@ function buildDemoMachines() {
       ip: '198.51.100.12',
       online: true,
       os: 'Ubuntu 22.04',
+      agent_version: 'v1.2.5',
       cpu_percent: 12,
       mem_percent: 23,
       disk_percent: 28,
@@ -781,6 +854,7 @@ function buildDemoMachines() {
       ip: '198.51.100.44',
       online: true,
       os: 'Debian 12',
+      agent_version: 'v1.2.4',
       cpu_percent: 46,
       mem_percent: 62,
       disk_percent: 67,
@@ -801,6 +875,7 @@ function buildDemoMachines() {
       ip: '198.51.100.89',
       online: false,
       os: 'Ubuntu 20.04',
+      agent_version: 'v1.2.2',
       cpu_percent: 0,
       mem_percent: 0,
       disk_percent: 81,
@@ -907,6 +982,13 @@ function buildDemoMachines() {
   opacity: 0.82;
 }
 
+.machines-page .machine-card.is-updating {
+  background:
+    radial-gradient(circle at 18% 0%, rgba(64, 158, 255, 0.2), transparent 34%),
+    linear-gradient(180deg, #ffffff 0%, #f5f9ff 100%);
+  border-color: rgba(64, 158, 255, 0.34);
+}
+
 .machines-page .machine-card-top {
   display: flex;
   align-items: flex-start;
@@ -947,12 +1029,29 @@ function buildDemoMachines() {
 }
 
 .machines-page .machine-ip-line {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: 4px;
   margin-top: 4px;
   color: #52657d;
   font-size: 13px;
+  min-width: 0;
+  width: 100%;
+}
+
+.machines-page .machine-ip-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.machines-page .agent-version-inline {
+  margin-left: auto;
+  padding-left: 8px;
+  color: #9aa8ba;
+  font-size: 11px;
+  white-space: nowrap;
 }
 
 .machines-page .copy-ip-btn {
@@ -1027,7 +1126,90 @@ function buildDemoMachines() {
 }
 
 .machines-page .more-action-btn {
-  border-color: rgba(84, 112, 150, 0.18);
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border-color: rgba(84, 112, 150, 0.16);
+  color: #52657d;
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: 0 8px 18px rgba(31, 44, 62, 0.06);
+}
+
+.machines-page .more-action-btn:hover {
+  border-color: rgba(31, 111, 235, 0.3);
+  color: #1f6feb;
+  background: #f7fbff;
+}
+
+.machines-page .action-arrow {
+  width: 13px;
+  margin-left: 6px;
+}
+
+.machines-page .machine-update-state {
+  margin-top: 18px;
+  min-height: 168px;
+  padding: 18px;
+  border-radius: 16px;
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 12px;
+  align-items: flex-start;
+  background: rgba(64, 158, 255, 0.08);
+  border: 1px solid rgba(64, 158, 255, 0.14);
+}
+
+.machines-page .machine-update-state strong {
+  display: block;
+  color: #132238;
+  font-size: 16px;
+}
+
+.machines-page .machine-update-state p {
+  margin: 6px 0 0;
+  color: #667996;
+  line-height: 1.55;
+  font-size: 13px;
+}
+
+.machines-page .update-spin-icon {
+  width: 30px;
+  height: 30px;
+  padding: 8px;
+  color: #1f6feb;
+  border-radius: 14px;
+  background: #ffffff;
+  box-shadow: 0 10px 22px rgba(31, 111, 235, 0.14);
+  animation: update-spin 1.2s linear infinite;
+}
+
+.machines-page .update-steps {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.machines-page .update-step {
+  padding: 6px 9px;
+  border-radius: 999px;
+  color: #7a8aa0;
+  font-size: 12px;
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(84, 112, 150, 0.12);
+}
+
+.machines-page .update-step.active {
+  color: #1f6feb;
+  border-color: rgba(31, 111, 235, 0.22);
+  background: #eef6ff;
+}
+
+@keyframes update-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .danger-dropdown-item {

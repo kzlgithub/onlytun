@@ -19,6 +19,7 @@ Usage:
   bash uninstall.sh --install agent|panel
   bash uninstall.sh --uninstall agent|panel|all [--yes] [--keep-config]
   bash uninstall.sh --update agent|panel|all
+  bash uninstall.sh --check-version agent|panel|all
   bash uninstall.sh agent [--yes] [--keep-config]
 EOF
 }
@@ -56,6 +57,10 @@ parse_args() {
         ACTION="update"
         shift
         ;;
+      --check-version|--version-check)
+        ACTION="check-version"
+        shift
+        ;;
       --yes|-y)
         ASSUME_YES="true"
         shift
@@ -90,13 +95,15 @@ prompt_action_if_missing() {
     printf "  1. 安装\n"
     printf "  2. 卸载\n"
     printf "  3. 更新\n"
-    printf "请输入序号 [1-3]: "
+    printf "  4. 查看&更新 Agent 版本\n"
+    printf "请输入序号 [1-4]: "
     read -r choice
     case "$choice" in
       1) ACTION="install"; break ;;
       2) ACTION="uninstall"; break ;;
       3) ACTION="update"; break ;;
-      *) warn "请输入 1、2 或 3。" ;;
+      4) ACTION="check-version"; TARGET="agent"; break ;;
+      *) warn "请输入 1、2、3 或 4。" ;;
     esac
   done
 }
@@ -211,6 +218,31 @@ run_update_flow() {
   esac
 }
 
+run_check_version_flow() {
+  prompt_target_if_missing "Version check"
+  case "$TARGET" in
+    agent)
+      if [ -f /root/install.sh ]; then
+        bash /root/install.sh --check-version
+      else
+        run_remote_script "install.sh" "--check-version"
+      fi
+      ;;
+    panel)
+      if [ -f /root/install-panel.sh ]; then
+        bash /root/install-panel.sh --check-version
+      else
+        run_remote_script "install-panel.sh" "--check-version"
+      fi
+      ;;
+    all)
+      TARGET="agent"; run_check_version_flow
+      TARGET="panel"; run_check_version_flow
+      ;;
+    *) fail "Version check target only supports agent, panel, or all." ;;
+  esac
+}
+
 run_uninstall_flow() {
   prompt_target_if_missing "Uninstall"
   case "$TARGET" in
@@ -237,6 +269,7 @@ main() {
     install) run_install_flow ;;
     uninstall) run_uninstall_flow ;;
     update) run_update_flow ;;
+    check-version) run_check_version_flow ;;
     *) fail "Unknown action: ${ACTION}" ;;
   esac
 }

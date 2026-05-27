@@ -54,6 +54,9 @@ export const panelApi = {
   metrics() {
     return api.get('/api/panel/metrics');
   },
+  version() {
+    return api.get('/api/panel/version');
+  },
   updatePanel() {
     return api.post('/api/panel/update');
   },

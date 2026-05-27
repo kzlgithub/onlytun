@@ -37,6 +37,11 @@
         </el-menu-item>
       </el-menu>
 
+      <div class="sidebar-version">
+        <span>Panel</span>
+        <strong>{{ panelVersion }}</strong>
+      </div>
+
       <el-button class="sidebar-logout" type="danger" plain @click="handleLogout">
         退出登录
       </el-button>
@@ -57,13 +62,15 @@
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../stores/auth';
+import { panelApi } from '../api';
 
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
+const panelVersion = ref('unknown');
 
 const activePath = computed(() => {
   if (route.path.startsWith('/rules/') && route.path.endsWith('/stats')) {
@@ -78,6 +85,15 @@ function handleLogout() {
   authStore.logout();
   router.push('/login');
 }
+
+onMounted(async () => {
+  try {
+    const { data } = await panelApi.version();
+    panelVersion.value = data.version || 'unknown';
+  } catch {
+    panelVersion.value = 'unknown';
+  }
+});
 </script>
 
 <style scoped>
@@ -170,10 +186,31 @@ function handleLogout() {
 }
 
 .sidebar-logout {
-  margin-top: auto;
+  margin-top: 14px;
   width: 100%;
   height: 42px;
   border-radius: 13px;
+}
+
+.sidebar-version {
+  margin-top: auto;
+  padding: 12px 14px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #6a7c94;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(84, 112, 150, 0.13);
+}
+
+.sidebar-version span {
+  font-size: 12px;
+}
+
+.sidebar-version strong {
+  color: #132238;
+  font-size: 13px;
 }
 
 .main-area {

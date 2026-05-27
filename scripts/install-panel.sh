@@ -25,6 +25,7 @@ Usage:
   bash install-panel.sh --install --port 8080 --password YOUR_PASSWORD
   bash install-panel.sh --uninstall
   bash install-panel.sh --update
+  bash install-panel.sh --check-version
 EOF
 }
 
@@ -69,6 +70,10 @@ parse_args() {
         ACTION="update"
         shift
         ;;
+      --check-version|--version-check)
+        ACTION="check-version"
+        shift
+        ;;
       -h|--help)
         usage
         exit 0
@@ -98,13 +103,15 @@ prompt_action_if_missing() {
     printf "  1. 安装\n"
     printf "  2. 卸载\n"
     printf "  3. 更新\n"
-    printf "请输入序号 [1-3]: "
+    printf "  4. 查看&更新面板版本\n"
+    printf "请输入序号 [1-4]: "
     read -r choice
     case "$choice" in
       1) ACTION="install"; break ;;
       2) ACTION="uninstall"; break ;;
       3) ACTION="update"; break ;;
-      *) warn "请输入 1、2 或 3。" ;;
+      4) ACTION="check-version"; break ;;
+      *) warn "请输入 1、2、3 或 4。" ;;
     esac
   done
 }
@@ -317,6 +324,48 @@ update_panel() {
   fi
 }
 
+current_panel_version() {
+  if [ -x "$PANEL_BIN" ]; then
+    "$PANEL_BIN" --version 2>/dev/null || printf "unknown"
+  else
+    printf "not installed"
+  fi
+}
+
+latest_release_version() {
+  curl -fsSL --connect-timeout 5 --max-time 12 \
+    "https://api.github.com/repos/kzlgithub/onlytun/releases/latest" 2>/dev/null |
+    grep -oE '"tag_name"[[:space:]]*:[[:space:]]*"[^"]+"' |
+    sed 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/' |
+    head -1
+}
+
+check_panel_version() {
+  local current latest answer
+  current="$(current_panel_version)"
+  latest="$(latest_release_version || true)"
+  [ -n "$latest" ] || latest="unknown"
+
+  printf "%bCurrent Panel version:%b %s\n" "$GREEN" "$NC" "$current"
+  printf "%bLatest Release version:%b %s\n" "$GREEN" "$NC" "$latest"
+
+  if [ "$current" = "$latest" ]; then
+    success "Panel is already up to date."
+    return 0
+  fi
+
+  if [ -t 0 ]; then
+    printf "Update Panel now? [y/N]: "
+    read -r answer
+    case "$answer" in
+      y|Y) update_panel ;;
+      *) warn "Update skipped." ;;
+    esac
+  else
+    warn "Run 'bash install-panel.sh --update' to update Panel."
+  fi
+}
+
 main() {
   require_root
   require_command curl
@@ -334,6 +383,10 @@ main() {
       ;;
     update)
       update_panel
+      exit 0
+      ;;
+    check-version)
+      check_panel_version
       exit 0
       ;;
   esac

@@ -29,6 +29,8 @@ const (
 	configSyncPeriod  = 60 * time.Second
 )
 
+var Version = "dev"
+
 type panelConfigResponse struct {
 	Rules      []config.RuleConfig `json:"rules"`
 	UpdateTask *panelUpdateTask    `json:"update_task"`
@@ -78,7 +80,12 @@ func main() {
 	log.SetFlags(log.LstdFlags)
 
 	configPath := flag.String("config", defaultConfigPath, "path to config cache file")
+	versionFlag := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
+	if *versionFlag {
+		fmt.Println(Version)
+		return
+	}
 
 	cfg, err := config.LoadConfig(*configPath)
 	if err != nil {
@@ -99,7 +106,7 @@ func main() {
 		cfgPath:  *configPath,
 		cfg:      cfg,
 		psk:      psk,
-		reporter: reporter.NewReporter(cfg.PanelURL, cfg.MachineID, cfg.Role, cfg.Token),
+		reporter: reporter.NewReporter(cfg.PanelURL, cfg.MachineID, cfg.Role, cfg.Token, Version),
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
 		},

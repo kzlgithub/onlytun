@@ -26,7 +26,7 @@ import (
 
 const (
 	defaultConfigPath = "/etc/onlytun/cache.json"
-	configSyncPeriod  = 60 * time.Second
+	configSyncPeriod  = 15 * time.Second
 )
 
 var Version = "dev"
@@ -336,11 +336,21 @@ report_result() {
   local success="$1"
   local error_text="${2:-}"
   local escaped_error
+  local attempt
   escaped_error="$(json_escape "$error_text")"
-  curl -fsS -X POST "${PANEL_URL}/api/agent/update-result" \
-    -H "Authorization: Bearer ${TOKEN}" \
-    -H "Content-Type: application/json" \
-    -d "{\"task_id\":\"${TASK_ID}\",\"success\":${success},\"error\":\"${escaped_error}\"}" >/dev/null 2>&1 || true
+  for attempt in $(seq 1 20); do
+    if curl -fsS -X POST "${PANEL_URL}/api/agent/update-result" \
+      -H "Authorization: Bearer ${TOKEN}" \
+      -H "Content-Type: application/json" \
+      -d "{\"task_id\":\"${TASK_ID}\",\"success\":${success},\"error\":\"${escaped_error}\"}" >/dev/null 2>&1; then
+      echo "[OK] update result reported on attempt ${attempt}"
+      return 0
+    fi
+    echo "[WARN] update result report attempt ${attempt} failed"
+    sleep 3
+  done
+  echo "[ERROR] update result report failed after retries"
+  return 1
 }
 
 run_update() {
@@ -357,11 +367,17 @@ fi
   code=$?
   printf '%s\n' "$output"
   if [ "$code" -eq 0 ]; then
-    report_result true ""
+    for attempt in $(seq 1 30); do
+      if systemctl is-active --quiet onlytun-agent; then
+        break
+      fi
+      sleep 1
+    done
+    report_result true "" || true
     echo "[OK] onlytun agent update finished at $(date -Is)"
   else
     short_output="$(printf '%s' "$output" | tail -c 1200)"
-    report_result false "agent update failed with exit ${code}: ${short_output}"
+    report_result false "agent update failed with exit ${code}: ${short_output}" || true
     echo "[ERROR] onlytun agent update failed with exit ${code}"
   fi
   rm -f "$0"

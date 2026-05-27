@@ -12,7 +12,10 @@ import (
 	"gorm.io/gorm"
 )
 
-const installTokenTTL = 24 * time.Hour
+const (
+	installTokenTTL   = 24 * time.Hour
+	updateTaskTimeout = 10 * time.Minute
+)
 
 var (
 	ErrInstallTokenNotFound = errors.New("service: install token not found")
@@ -73,6 +76,10 @@ func NewMachineService(gdb *gorm.DB, tunnelPort int) *MachineService {
 }
 
 func (s *MachineService) ListMachines() ([]MachineListItem, error) {
+	if err := s.expireStaleUpdateTasks(time.Now()); err != nil {
+		return nil, err
+	}
+
 	var machines []paneldb.Machine
 	if err := s.db.Order("created_at DESC").Find(&machines).Error; err != nil {
 		return nil, err
@@ -149,6 +156,10 @@ func (s *MachineService) DeleteMachine(id string) error {
 }
 
 func (s *MachineService) RequestMachineUpdate(id string) (*paneldb.MachineUpdateTask, error) {
+	if err := s.expireStaleUpdateTasks(time.Now()); err != nil {
+		return nil, err
+	}
+
 	var task *paneldb.MachineUpdateTask
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		var machine paneldb.Machine
@@ -180,6 +191,7 @@ func (s *MachineService) RequestMachineUpdate(id string) (*paneldb.MachineUpdate
 			MachineID:   id,
 			Kind:        "agent",
 			Status:      "pending",
+			FromVersion: strings.TrimSpace(machine.AgentVersion),
 			RequestedAt: time.Now(),
 		}
 		if err := tx.Create(record).Error; err != nil {
@@ -192,6 +204,10 @@ func (s *MachineService) RequestMachineUpdate(id string) (*paneldb.MachineUpdate
 }
 
 func (s *MachineService) PendingUpdateForMachine(machineID string) (*AgentUpdateTask, error) {
+	if err := s.expireStaleUpdateTasks(time.Now()); err != nil {
+		return nil, err
+	}
+
 	var task paneldb.MachineUpdateTask
 	result := s.db.
 		Where("machine_id = ? AND status = ?", machineID, "pending").
@@ -405,15 +421,63 @@ func (s *MachineService) UpdateHeartbeat(machine *paneldb.Machine, role, ip, age
 		updates["online_since"] = time.Now()
 	}
 
-	return s.db.Model(&paneldb.Machine{}).
+	if err := s.db.Model(&paneldb.Machine{}).
 		Where("id = ?", machine.ID).
-		Updates(updates).Error
+		Updates(updates).Error; err != nil {
+		return err
+	}
+
+	return s.reconcileUpdateTaskFromHeartbeat(machine.ID, strings.TrimSpace(agentVersion), time.Now())
 }
 
 func (s *MachineService) MarkOfflineBefore(cutoff time.Time) error {
 	return s.db.Model(&paneldb.Machine{}).
 		Where("online = ? AND last_heartbeat < ?", true, cutoff).
 		Update("online", false).Error
+}
+
+func (s *MachineService) reconcileUpdateTaskFromHeartbeat(machineID, agentVersion string, now time.Time) error {
+	var task paneldb.MachineUpdateTask
+	result := s.db.
+		Where("machine_id = ? AND status = ?", machineID, "running").
+		Order("started_at DESC, created_at DESC").
+		Limit(1).
+		Find(&task)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return nil
+	}
+
+	if task.FromVersion != "" && agentVersion != "" && agentVersion != task.FromVersion {
+		return s.finishUpdateTask(task.ID, machineID, "success", "", now)
+	}
+	if task.StartedAt != nil && now.Sub(*task.StartedAt) > updateTaskTimeout {
+		return s.finishUpdateTask(task.ID, machineID, "failed", "agent update result timed out", now)
+	}
+	return nil
+}
+
+func (s *MachineService) expireStaleUpdateTasks(now time.Time) error {
+	cutoff := now.Add(-updateTaskTimeout)
+	return s.db.Model(&paneldb.MachineUpdateTask{}).
+		Where("status IN ? AND updated_at < ?", []string{"pending", "running"}, cutoff).
+		Updates(map[string]any{
+			"status":      "failed",
+			"error":       "update task timed out",
+			"finished_at": &now,
+		}).Error
+}
+
+func (s *MachineService) finishUpdateTask(taskID, machineID, status, errText string, now time.Time) error {
+	return s.db.Model(&paneldb.MachineUpdateTask{}).
+		Where("id = ? AND machine_id = ? AND status IN ?", taskID, machineID, []string{"pending", "running"}).
+		Updates(map[string]any{
+			"status":      status,
+			"error":       errText,
+			"finished_at": &now,
+		}).Error
 }
 
 func (s *MachineService) BuildInstallScripts(baseURL string) (*InstallScriptPayload, error) {

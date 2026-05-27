@@ -61,8 +61,8 @@ export const panelApi = {
   version(config = {}) {
     return api.get('/api/panel/version', config);
   },
-  updatePanel() {
-    return api.post('/api/panel/update');
+  updatePanel(config = {}) {
+    return api.post('/api/panel/update', null, config);
   },
 };
 

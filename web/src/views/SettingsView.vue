@@ -62,11 +62,35 @@
         </div>
       </el-card>
     </div>
+
+    <div v-if="panelUpdate.visible" class="panel-update-lock">
+      <div class="panel-update-lock-card">
+        <div class="lock-orbit">
+          <span></span>
+        </div>
+        <h2>{{ panelUpdateTitle }}</h2>
+        <p>{{ panelUpdate.message }}</p>
+        <div class="lock-steps">
+          <div
+            v-for="step in panelUpdateSteps"
+            :key="step.key"
+            class="lock-step"
+            :class="{ active: step.active, done: step.done }"
+          >
+            <span class="step-dot"></span>
+            <span>{{ step.label }}</span>
+          </div>
+        </div>
+        <el-button v-if="panelUpdate.phase === 'failed'" type="primary" round @click="reloadPage">
+          刷新页面
+        </el-button>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { useRouter } from 'vue-router';
 import { authApi, panelApi } from '../api';
@@ -79,6 +103,12 @@ const submitting = ref(false);
 const updatingPanel = ref(false);
 const versionLoading = ref(false);
 const panelVersion = ref('unknown');
+const PANEL_UPDATE_LOCK_KEY = 'onlytun_panel_update_lock';
+const panelUpdate = reactive({
+  visible: false,
+  phase: 'idle',
+  message: '',
+});
 const form = reactive({
   old_password: '',
   new_password: '',
@@ -105,6 +135,33 @@ const rules = {
     },
   ],
 };
+
+const panelUpdateTitle = computed(() => {
+  if (panelUpdate.phase === 'done') return '面板更新完成';
+  if (panelUpdate.phase === 'failed') return '面板更新需要确认';
+  return '面板正在更新';
+});
+
+const panelUpdateSteps = computed(() => [
+  {
+    key: 'scheduled',
+    label: '下发更新',
+    active: panelUpdate.phase === 'starting',
+    done: ['restarting', 'checking', 'done'].includes(panelUpdate.phase),
+  },
+  {
+    key: 'restart',
+    label: '服务重启',
+    active: panelUpdate.phase === 'restarting',
+    done: ['checking', 'done'].includes(panelUpdate.phase),
+  },
+  {
+    key: 'verify',
+    label: '恢复校验',
+    active: panelUpdate.phase === 'checking',
+    done: panelUpdate.phase === 'done',
+  },
+]);
 
 async function loadPanelVersion() {
   versionLoading.value = true;
@@ -134,7 +191,7 @@ async function submitPassword() {
 
 async function updatePanel() {
   await ElMessageBox.confirm(
-    '确定要更新面板吗？服务会短暂重启，当前页面可能需要稍后刷新。',
+    '确定要更新面板吗？更新期间页面会锁定，直到服务恢复。',
     '更新面板',
     {
       type: 'warning',
@@ -144,15 +201,125 @@ async function updatePanel() {
   );
 
   updatingPanel.value = true;
+  const fromVersion = panelVersion.value;
+  startPanelUpdateLock('starting', '正在向面板服务下发更新任务，请不要关闭窗口。', fromVersion);
   try {
-    await panelApi.updatePanel();
-    ElMessage.success('面板更新任务已启动，稍后刷新版本查看状态');
+    try {
+      await panelApi.updatePanel({ silentError: true, timeout: 5000 });
+    } catch (error) {
+      if (error?.response) {
+        throw error;
+      }
+    }
+    panelUpdate.phase = 'restarting';
+    panelUpdate.message = '更新任务已启动，正在等待 onlytun-panel 重启完成。';
+    const nextVersion = await waitForPanelReady(fromVersion);
+    panelVersion.value = nextVersion;
+    finishPanelUpdateLock(nextVersion);
+    ElMessage.success(`面板已更新到 ${nextVersion}`);
+  } catch (error) {
+    failPanelUpdateLock(error);
   } finally {
     updatingPanel.value = false;
   }
 }
 
-onMounted(loadPanelVersion);
+function startPanelUpdateLock(phase, message, fromVersion) {
+  panelUpdate.visible = true;
+  panelUpdate.phase = phase;
+  panelUpdate.message = message;
+  localStorage.setItem(
+    PANEL_UPDATE_LOCK_KEY,
+    JSON.stringify({
+      startedAt: Date.now(),
+      fromVersion: fromVersion || 'unknown',
+    }),
+  );
+}
+
+function finishPanelUpdateLock(version) {
+  panelUpdate.phase = 'done';
+  panelUpdate.message = `服务已恢复，当前版本 ${version || 'unknown'}。`;
+  localStorage.removeItem(PANEL_UPDATE_LOCK_KEY);
+  window.setTimeout(() => {
+    panelUpdate.visible = false;
+  }, 1200);
+}
+
+function failPanelUpdateLock(error) {
+  panelUpdate.phase = 'failed';
+  panelUpdate.message =
+    error?.message || '暂时无法确认面板是否完成更新，请等待片刻后刷新页面重新检查。';
+  localStorage.removeItem(PANEL_UPDATE_LOCK_KEY);
+}
+
+function reloadPage() {
+  window.location.reload();
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+async function waitForPanelReady(fromVersion) {
+  const startedAt = Date.now();
+  let sawUnavailable = false;
+
+  while (Date.now() - startedAt < 180000) {
+    await sleep(2000);
+    panelUpdate.phase = sawUnavailable ? 'checking' : 'restarting';
+
+    try {
+      const { data } = await panelApi.version({ silentError: true, timeout: 3000 });
+      const nextVersion = data.version || 'unknown';
+      panelUpdate.phase = 'checking';
+      panelUpdate.message = `面板已响应，正在校验版本：${nextVersion}`;
+
+      if (fromVersion && fromVersion !== 'unknown' && nextVersion !== fromVersion) {
+        return nextVersion;
+      }
+      if (sawUnavailable && Date.now() - startedAt > 8000) {
+        return nextVersion;
+      }
+    } catch {
+      sawUnavailable = true;
+      panelUpdate.phase = 'restarting';
+      panelUpdate.message = '服务正在重启，页面会自动等待恢复。';
+    }
+  }
+
+  throw new Error('等待面板恢复超时，请稍后刷新页面或检查 onlytun-panel 服务日志。');
+}
+
+function resumePanelUpdateLock() {
+  const raw = localStorage.getItem(PANEL_UPDATE_LOCK_KEY);
+  if (!raw) return;
+
+  try {
+    const state = JSON.parse(raw);
+    if (!state.startedAt || Date.now() - state.startedAt > 10 * 60 * 1000) {
+      localStorage.removeItem(PANEL_UPDATE_LOCK_KEY);
+      return;
+    }
+
+    panelUpdate.visible = true;
+    panelUpdate.phase = 'checking';
+    panelUpdate.message = '检测到面板正在更新，正在等待服务恢复。';
+    waitForPanelReady(state.fromVersion)
+      .then((version) => {
+        panelVersion.value = version;
+        finishPanelUpdateLock(version);
+      })
+      .catch(failPanelUpdateLock);
+  } catch {
+    localStorage.removeItem(PANEL_UPDATE_LOCK_KEY);
+  }
+}
+
+onMounted(async () => {
+  await loadPanelVersion();
+  resumePanelUpdateLock();
+});
 </script>
 
 <style scoped>
@@ -263,6 +430,116 @@ onMounted(loadPanelVersion);
   margin-top: auto;
   display: flex;
   justify-content: flex-end;
+}
+
+.panel-update-lock {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background:
+    radial-gradient(circle at 30% 20%, rgba(64, 158, 255, 0.14), transparent 34%),
+    rgba(244, 248, 253, 0.9);
+  backdrop-filter: blur(14px);
+}
+
+.panel-update-lock-card {
+  width: min(520px, 100%);
+  min-height: 360px;
+  padding: 36px;
+  border-radius: 28px;
+  text-align: center;
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid rgba(126, 154, 190, 0.18);
+  box-shadow: 0 24px 70px rgba(42, 72, 112, 0.18);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+}
+
+.panel-update-lock-card h2 {
+  margin: 0;
+  color: #132238;
+  font-size: 26px;
+  letter-spacing: -0.04em;
+}
+
+.panel-update-lock-card p {
+  margin: 0;
+  max-width: 390px;
+  color: #6d7f99;
+  line-height: 1.7;
+}
+
+.lock-orbit {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, #e8f3ff, #f7fbff);
+  border: 1px solid rgba(64, 158, 255, 0.18);
+}
+
+.lock-orbit span {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: 4px solid rgba(64, 158, 255, 0.18);
+  border-top-color: #409eff;
+  animation: update-spin 0.9s linear infinite;
+}
+
+.lock-steps {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin: 10px 0 2px;
+}
+
+.lock-step {
+  min-height: 42px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: #7a8ba3;
+  background: #f5f8fc;
+  border: 1px solid rgba(126, 154, 190, 0.16);
+  font-size: 13px;
+  transition: all 0.2s ease;
+}
+
+.lock-step.active,
+.lock-step.done {
+  color: #1f74d8;
+  background: rgba(64, 158, 255, 0.1);
+  border-color: rgba(64, 158, 255, 0.24);
+}
+
+.lock-step.done {
+  color: #2ca37a;
+  background: rgba(70, 179, 137, 0.1);
+  border-color: rgba(70, 179, 137, 0.22);
+}
+
+.step-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+@keyframes update-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 @media (max-width: 980px) {

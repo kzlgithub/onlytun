@@ -26,6 +26,12 @@ func (h *Handler) UpdatePanel(c *gin.Context) {
 	script := `
 set -eu
 LOG=/var/log/onlytun-panel-update.log
+LOCK=/tmp/onlytun-panel-update.lock
+if ! mkdir "$LOCK" 2>/dev/null; then
+  echo "[WARN] panel update is already running" >>"$LOG"
+  exit 0
+fi
+trap 'rmdir "$LOCK"' EXIT
 if [ -f /root/install-panel.sh ]; then
   bash /root/install-panel.sh --update >>"$LOG" 2>&1
 else

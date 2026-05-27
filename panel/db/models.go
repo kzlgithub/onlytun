@@ -74,6 +74,7 @@ type MachineUpdateTask struct {
 	MachineID   string     `gorm:"size:36;not null;index" json:"machine_id"`
 	Kind        string     `gorm:"size:32;not null" json:"kind"`
 	Status      string     `gorm:"size:32;not null;index" json:"status"`
+	FromVersion string     `gorm:"size:64" json:"from_version"`
 	Error       string     `gorm:"type:text" json:"error"`
 	RequestedAt time.Time  `gorm:"index" json:"requested_at"`
 	StartedAt   *time.Time `json:"started_at,omitempty"`

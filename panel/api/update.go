@@ -1,10 +1,12 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 	"os/exec"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -24,7 +26,10 @@ else
   bash <(curl -fsSL https://raw.githubusercontent.com/kzlgithub/onlytun/main/scripts/install-panel.sh) --update >>"$LOG" 2>&1
 fi
 `
-	command := "nohup /bin/bash -c " + shellQuote("sleep 1\n"+script) + " >/dev/null 2>&1 &"
+	unit := fmt.Sprintf("onlytun-panel-update-%d", time.Now().UnixNano())
+	runScript := "/bin/bash -c " + shellQuote(script)
+	command := "systemd-run --unit=" + shellQuote(unit) + " --property=Type=oneshot " + runScript + " >/dev/null 2>&1 || " +
+		"nohup /bin/bash -c " + shellQuote("sleep 1\n"+script) + " >/dev/null 2>&1 &"
 	if err := exec.Command("/bin/bash", "-c", command).Start(); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

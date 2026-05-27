@@ -379,7 +379,10 @@ fi
 		return err
 	}
 
-	command := "nohup /bin/bash -c " + shellQuote("sleep 1\n/bin/bash "+shellQuote(path)) + " >/dev/null 2>&1 &"
+	unit := fmt.Sprintf("onlytun-agent-update-%d", time.Now().UnixNano())
+	runScript := "/bin/bash " + shellQuote(path)
+	command := "systemd-run --unit=" + shellQuote(unit) + " --property=Type=oneshot " + runScript + " >/dev/null 2>&1 || " +
+		"nohup /bin/bash -c " + shellQuote("sleep 1\n"+runScript) + " >/dev/null 2>&1 &"
 	return exec.Command("/bin/bash", "-c", command).Start()
 }
 

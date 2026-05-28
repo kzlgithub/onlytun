@@ -3,6 +3,7 @@ package service
 import (
 	"path/filepath"
 	"testing"
+	"time"
 
 	paneldb "github.com/onlytun/panel/db"
 )
@@ -67,5 +68,51 @@ func TestIngestStatsIgnoresUnknownRuleIDs(t *testing.T) {
 	}
 	if rows[0].RuleID != rule.ID || rows[0].BytesUp != 10 || rows[0].BytesDown != 20 || rows[0].PeakConns != 2 {
 		t.Fatalf("unexpected stat row: %+v", rows[0])
+	}
+}
+
+func TestTodayTotalsForRulesAggregatesCurrentDayOnly(t *testing.T) {
+	gdb, err := paneldb.OpenDatabase(filepath.Join(t.TempDir(), "panel.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+
+	now := time.Date(2026, 5, 28, 15, 30, 0, 0, time.UTC)
+	svc := NewStatsService(gdb)
+	if err := gdb.Create(&[]paneldb.TrafficStat{
+		{
+			RuleID:    "rule-1",
+			Hour:      now.Add(-2 * time.Hour).UTC().Truncate(time.Hour),
+			BytesUp:   10,
+			BytesDown: 20,
+		},
+		{
+			RuleID:    "rule-1",
+			Hour:      now.Add(-24 * time.Hour).UTC().Truncate(time.Hour),
+			BytesUp:   100,
+			BytesDown: 200,
+		},
+		{
+			RuleID:    "rule-2",
+			Hour:      now.UTC().Truncate(time.Hour),
+			BytesUp:   7,
+			BytesDown: 8,
+		},
+	}).Error; err != nil {
+		t.Fatalf("create stats: %v", err)
+	}
+
+	totals, err := svc.TodayTotalsForRules([]string{"rule-1", "rule-2", "missing"}, now)
+	if err != nil {
+		t.Fatalf("today totals: %v", err)
+	}
+	if totals["rule-1"] != 30 {
+		t.Fatalf("expected rule-1 total 30, got %d", totals["rule-1"])
+	}
+	if totals["rule-2"] != 15 {
+		t.Fatalf("expected rule-2 total 15, got %d", totals["rule-2"])
+	}
+	if totals["missing"] != 0 {
+		t.Fatalf("expected missing total 0, got %d", totals["missing"])
 	}
 }

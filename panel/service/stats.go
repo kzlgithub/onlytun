@@ -146,6 +146,34 @@ func (s *StatsService) LatestStatsForRules(ruleIDs []string) (map[string]RuleRea
 	return statsByRule, nil
 }
 
+func (s *StatsService) TodayTotalsForRules(ruleIDs []string, now time.Time) (map[string]int64, error) {
+	totals := make(map[string]int64, len(ruleIDs))
+	if len(ruleIDs) == 0 {
+		return totals, nil
+	}
+
+	location := now.Location()
+	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, location)
+	end := start.Add(24 * time.Hour)
+
+	type row struct {
+		RuleID string
+		Total  int64
+	}
+	var rows []row
+	if err := s.db.Model(&paneldb.TrafficStat{}).
+		Select("rule_id, COALESCE(SUM(bytes_up + bytes_down), 0) AS total").
+		Where("rule_id IN ? AND hour >= ? AND hour < ?", ruleIDs, start.UTC(), end.UTC()).
+		Group("rule_id").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	for _, item := range rows {
+		totals[item.RuleID] = item.Total
+	}
+	return totals, nil
+}
+
 func (s *StatsService) GetSeries(ruleID, rangeKey string) (*StatsSeries, error) {
 	now := time.Now()
 	switch rangeKey {

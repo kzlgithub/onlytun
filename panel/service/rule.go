@@ -49,6 +49,7 @@ type RuleView struct {
 	paneldb.ForwardRule
 	RealtimeStat  RuleRealtimeStat `json:"realtime_stat"`
 	TotalBytes    int64            `json:"total_bytes"`
+	TodayBytes    int64            `json:"today_bytes"`
 	LimitExceeded bool             `json:"limit_exceeded"`
 }
 

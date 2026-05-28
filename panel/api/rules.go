@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/onlytun/panel/service"
@@ -29,6 +30,11 @@ func (h *Handler) ListRules(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	todayTotalsMap, err := h.Stats.TodayTotalsForRules(ids, time.Now())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 
 	items := make([]service.RuleView, 0, len(rules))
 	for _, rule := range rules {
@@ -37,6 +43,7 @@ func (h *Handler) ListRules(c *gin.Context) {
 			ForwardRule:   rule,
 			RealtimeStat:  statsMap[rule.ID],
 			TotalBytes:    total,
+			TodayBytes:    todayTotalsMap[rule.ID],
 			LimitExceeded: rule.TrafficLimitBytes > 0 && total >= rule.TrafficLimitBytes,
 		})
 	}

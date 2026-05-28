@@ -55,8 +55,10 @@ export const useRuleStore = defineStore('rules', {
         const { data } = await ruleApi.list();
         const incomingRules = data.rules || [];
         this.updateRateMap(incomingRules);
+        this.updateTodayTotalsFromRules(incomingRules);
         this.mergeRules(incomingRules);
-        if (includeDayTotals && incomingRules.length > 0) {
+        const needsLegacyTotals = includeDayTotals && incomingRules.some((item) => item.today_bytes === undefined);
+        if (needsLegacyTotals && incomingRules.length > 0) {
           await this.fetchTodayTotals(incomingRules.map((item) => item.id));
         }
         return this.rules;
@@ -85,8 +87,15 @@ export const useRuleStore = defineStore('rules', {
         nextSnapshots[rule.id] = current;
       }
 
-        this.rateMap = nextRateMap;
-        this.snapshots = nextSnapshots;
+      this.rateMap = nextRateMap;
+      this.snapshots = nextSnapshots;
+    },
+    updateTodayTotalsFromRules(rules) {
+      const nextTotals = {};
+      for (const rule of rules) {
+        nextTotals[rule.id] = rule.today_bytes ?? this.dayTotals[rule.id] ?? 0;
+      }
+      this.dayTotals = nextTotals;
     },
     mergeRules(incomingRules) {
       const currentById = new Map(this.rules.map((item) => [item.id, item]));

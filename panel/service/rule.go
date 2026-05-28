@@ -18,6 +18,7 @@ var (
 	ErrInvalidMachine   = errors.New("service: invalid machine reference")
 	ErrInvalidTarget    = errors.New("service: invalid target address")
 	ErrMachineIPMissing = errors.New("service: egress machine has no IP")
+	ErrRulePortConflict = errors.New("入口机端口已被占用")
 )
 
 type RuleService struct {
@@ -204,6 +205,10 @@ func (s *RuleService) buildRule(id string, input RuleInput) (*paneldb.ForwardRul
 		return nil, ErrInvalidMachine
 	}
 
+	if err := s.ensureIngressPortAvailable(id, input.IngressMachineID, input.IngressPort, protocol); err != nil {
+		return nil, err
+	}
+
 	return &paneldb.ForwardRule{
 		ID:                id,
 		Name:              strings.TrimSpace(input.Name),
@@ -217,6 +222,33 @@ func (s *RuleService) buildRule(id string, input RuleInput) (*paneldb.ForwardRul
 		Enabled:           input.Enabled,
 		Remark:            strings.TrimSpace(input.Remark),
 	}, nil
+}
+
+func (s *RuleService) ensureIngressPortAvailable(ruleID, ingressMachineID string, ingressPort int, protocol string) error {
+	var rules []paneldb.ForwardRule
+	query := s.db.Where("ingress_machine_id = ? AND ingress_port = ?", ingressMachineID, ingressPort)
+	if strings.TrimSpace(ruleID) != "" {
+		query = query.Where("id <> ?", ruleID)
+	}
+	if err := query.Find(&rules).Error; err != nil {
+		return err
+	}
+
+	for _, rule := range rules {
+		if protocolsOverlap(protocol, rule.Protocol) {
+			return ErrRulePortConflict
+		}
+	}
+	return nil
+}
+
+func protocolsOverlap(left, right string) bool {
+	left = strings.ToLower(strings.TrimSpace(left))
+	right = strings.ToLower(strings.TrimSpace(right))
+	if left == "both" || right == "both" {
+		return true
+	}
+	return left == right
 }
 
 func (s *RuleService) ruleLimitExceeded(rule paneldb.ForwardRule) (bool, error) {

@@ -126,9 +126,12 @@ export const useRuleStore = defineStore('rules', {
         return acc;
       }, {});
     },
-    async createRule(payload) {
+    async createRule(payload, options = {}) {
+      const { refresh = true } = options;
       const { data } = await ruleApi.create(payload);
-      await this.fetchRules({ includeDayTotals: true });
+      if (refresh) {
+        await this.fetchRules({ includeDayTotals: true });
+      }
       return data;
     },
     async updateRule(id, payload) {

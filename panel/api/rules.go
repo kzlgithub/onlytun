@@ -107,6 +107,8 @@ func ruleErrorStatus(err error) int {
 		errors.Is(err, service.ErrInvalidProtocol),
 		errors.Is(err, service.ErrInvalidTarget):
 		return http.StatusBadRequest
+	case errors.Is(err, service.ErrRulePortConflict):
+		return http.StatusConflict
 	default:
 		return http.StatusInternalServerError
 	}

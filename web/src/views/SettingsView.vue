@@ -27,37 +27,37 @@
 
       <el-card class="panel-card settings-card update-card" shadow="never">
         <template #header>
-          <div class="card-heading card-heading-inline">
+          <div class="card-heading">
             <div>
               <h3 class="section-title">面板更新</h3>
-              <p class="section-meta">从 GitHub Release 拉取最新面板二进制，配置和数据库会保留。</p>
+              <p class="section-meta">在线更新面板程序，配置和数据库会保留。</p>
             </div>
-            <span class="soft-status">systemd</span>
           </div>
         </template>
 
         <div class="update-panel">
-          <div class="update-list">
-            <div class="update-item">
-              <span>当前版本</span>
-              <strong>{{ panelVersion }}</strong>
+          <div class="update-hero">
+            <div class="update-mark brand-mark" aria-hidden="true">
+              <span></span>
+              <span></span>
             </div>
-            <div class="update-item">
-              <span>更新来源</span>
-              <strong>GitHub Release</strong>
-            </div>
-            <div class="update-item">
-              <span>服务方式</span>
-              <strong>systemd 自动重启</strong>
+            <div class="update-copy">
+              <span class="update-eyebrow">Panel Update</span>
+              <h4>让面板保持最新</h4>
+              <p>更新会短暂重启 onlytun-panel，页面会自动进入等待状态，直到服务恢复。</p>
             </div>
           </div>
 
-          <p class="update-note">
-            更新会短暂重启 onlytun-panel，配置和数据库会保留。建议避开正在创建规则或批量更新隧道机的时候执行。
-          </p>
+          <div class="version-panel">
+            <span>当前版本</span>
+            <strong>{{ panelVersion }}</strong>
+          </div>
 
           <div class="update-footer">
-            <el-button type="primary" :loading="updatingPanel" round @click="updatePanel">立即更新</el-button>
+            <p>建议在没有批量修改规则或更新隧道机时执行。</p>
+            <el-button type="primary" :loading="updatingPanel" round @click="updatePanel">
+              立即更新
+            </el-button>
           </div>
         </div>
       </el-card>
@@ -361,19 +361,6 @@ onMounted(async () => {
   gap: 16px;
 }
 
-.card-heading-inline {
-  align-items: center;
-}
-
-.soft-status {
-  padding: 6px 10px;
-  border-radius: 999px;
-  color: #46b389;
-  font-size: 12px;
-  background: rgba(70, 179, 137, 0.1);
-  border: 1px solid rgba(70, 179, 137, 0.18);
-}
-
 .password-form {
   max-width: 420px;
 }
@@ -383,53 +370,128 @@ onMounted(async () => {
 }
 
 .update-panel {
-  min-height: 236px;
+  min-height: 260px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 18px;
 }
 
-.update-list {
-  display: grid;
-  gap: 10px;
+.update-hero {
+  min-height: 122px;
+  padding: 22px;
+  border-radius: 22px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  background:
+    radial-gradient(circle at 12% 18%, rgba(64, 158, 255, 0.18), transparent 30%),
+    linear-gradient(135deg, #f7fbff 0%, #ffffff 58%, #f5f9ff 100%);
+  border: 1px solid rgba(84, 112, 150, 0.12);
 }
 
-.update-item {
-  min-height: 46px;
-  padding: 0 14px;
-  border-radius: 14px;
+.update-mark {
+  width: 58px;
+  height: 58px;
+  flex: 0 0 auto;
+}
+
+.brand-mark {
+  border-radius: 18px;
+  position: relative;
+  background: #f7fbff;
+  border: 1px solid rgba(31, 111, 235, 0.16);
+  box-shadow: 0 14px 30px rgba(31, 111, 235, 0.1);
+}
+
+.brand-mark span {
+  position: absolute;
+  display: block;
+  border-radius: 999px;
+}
+
+.brand-mark span:first-child {
+  width: 31px;
+  height: 14px;
+  left: 13px;
+  top: 16px;
+  background: #1f6feb;
+}
+
+.brand-mark span:last-child {
+  width: 14px;
+  height: 31px;
+  right: 13px;
+  bottom: 11px;
+  background: #46b389;
+}
+
+.update-copy {
+  min-width: 0;
+}
+
+.update-eyebrow {
+  display: inline-flex;
+  margin-bottom: 7px;
+  color: #409eff;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.update-copy h4 {
+  margin: 0;
+  color: #132238;
+  font-size: 22px;
+  letter-spacing: -0.04em;
+}
+
+.update-copy p {
+  margin: 8px 0 0;
+  color: #6d7f99;
+  line-height: 1.65;
+}
+
+.version-panel {
+  min-height: 72px;
+  padding: 0 18px;
+  border-radius: 18px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  background: #f8fbff;
-  border: 1px solid rgba(84, 112, 150, 0.1);
+  background: #ffffff;
+  border: 1px solid rgba(84, 112, 150, 0.12);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
 }
 
-.update-item span {
+.version-panel span {
   color: #6d7f99;
   font-size: 13px;
 }
 
-.update-item strong {
+.version-panel strong {
+  padding: 8px 13px;
+  border-radius: 999px;
   color: #132238;
   font-size: 14px;
-  text-align: right;
-}
-
-.update-note {
-  margin: 0;
-  padding: 12px 14px;
-  border-radius: 14px;
-  color: #6d7f99;
-  line-height: 1.7;
-  background: rgba(64, 158, 255, 0.06);
+  background: #f4f8fd;
+  border: 1px solid rgba(84, 112, 150, 0.12);
 }
 
 .update-footer {
   margin-top: auto;
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.update-footer p {
+  margin: 0;
+  color: #7a8ba3;
+  font-size: 13px;
+  line-height: 1.6;
 }
 
 .panel-update-lock {

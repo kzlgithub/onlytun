@@ -128,7 +128,6 @@
         v-model="importText"
         type="textarea"
         :rows="12"
-        placeholder="0816-hzj-us#45186#66.253.7.148#42041"
       />
       <template #footer>
         <div class="dialog-footer-actions">

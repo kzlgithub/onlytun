@@ -6,8 +6,14 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	paneldb "github.com/onlytun/panel/db"
 	"github.com/onlytun/panel/service"
 )
+
+type ruleCreateResponse struct {
+	paneldb.ForwardRule
+	ConflictRule *paneldb.ForwardRule `json:"conflict_rule,omitempty"`
+}
 
 func (h *Handler) ListRules(c *gin.Context) {
 	rules, err := h.Rules.ListRules()
@@ -58,12 +64,15 @@ func (h *Handler) CreateRule(c *gin.Context) {
 		return
 	}
 
-	rule, err := h.Rules.CreateRule(input)
+	rule, conflictRule, err := h.Rules.CreateRule(input)
 	if err != nil {
 		writeRuleError(c, err)
 		return
 	}
-	c.JSON(http.StatusCreated, rule)
+	c.JSON(http.StatusCreated, ruleCreateResponse{
+		ForwardRule:  *rule,
+		ConflictRule: conflictRule,
+	})
 }
 
 func (h *Handler) UpdateRule(c *gin.Context) {

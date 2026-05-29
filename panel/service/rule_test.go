@@ -72,7 +72,7 @@ func TestEnabledRulesForMachineExcludesExceededTrafficLimit(t *testing.T) {
 	}
 }
 
-func TestCreateRuleRejectsOverlappingIngressPort(t *testing.T) {
+func TestCreateRuleDisablesOverlappingIngressPort(t *testing.T) {
 	gdb, err := paneldb.OpenDatabase(filepath.Join(t.TempDir(), "panel.db"))
 	if err != nil {
 		t.Fatalf("open db: %v", err)
@@ -98,33 +98,39 @@ func TestCreateRuleRejectsOverlappingIngressPort(t *testing.T) {
 		Protocol:         "tcp",
 		Enabled:          true,
 	}
-	if _, err := svc.CreateRule(base); err != nil {
+	if _, _, err := svc.CreateRule(base); err != nil {
 		t.Fatalf("create base rule: %v", err)
 	}
 
 	conflict := base
 	conflict.Name = "Conflict"
-	if _, err := svc.CreateRule(conflict); !errors.Is(err, ErrRulePortConflict) {
-		t.Fatalf("expected ErrRulePortConflict, got %v", err)
-	} else {
-		var conflictErr *RulePortConflictError
-		if !errors.As(err, &conflictErr) || conflictErr.Rule.Name != "Base" {
-			t.Fatalf("expected conflict rule Base, got %#v", err)
-		}
+	conflictRule, occupiedBy, err := svc.CreateRule(conflict)
+	if err != nil {
+		t.Fatalf("create conflicting rule should succeed as disabled: %v", err)
+	}
+	if conflictRule.Enabled {
+		t.Fatal("conflicting rule should be saved as disabled")
+	}
+	if occupiedBy == nil || occupiedBy.Name != "Base" {
+		t.Fatalf("expected conflict rule Base, got %#v", occupiedBy)
 	}
 
 	udpSamePort := base
 	udpSamePort.Name = "UDP Same Port"
 	udpSamePort.Protocol = "udp"
-	if _, err := svc.CreateRule(udpSamePort); err != nil {
+	if udpRule, occupiedBy, err := svc.CreateRule(udpSamePort); err != nil {
 		t.Fatalf("expected tcp and udp on same port to coexist, got %v", err)
+	} else if !udpRule.Enabled || occupiedBy != nil {
+		t.Fatalf("expected udp rule enabled without conflict, got rule=%+v conflict=%+v", udpRule, occupiedBy)
 	}
 
 	bothConflict := base
 	bothConflict.Name = "Both Conflict"
 	bothConflict.Protocol = "both"
-	if _, err := svc.CreateRule(bothConflict); !errors.Is(err, ErrRulePortConflict) {
-		t.Fatalf("expected both protocol conflict, got %v", err)
+	if bothRule, occupiedBy, err := svc.CreateRule(bothConflict); err != nil {
+		t.Fatalf("create both conflict should succeed as disabled: %v", err)
+	} else if bothRule.Enabled || occupiedBy == nil {
+		t.Fatalf("expected both conflict disabled with conflict rule, got rule=%+v conflict=%+v", bothRule, occupiedBy)
 	}
 }
 
@@ -154,15 +160,17 @@ func TestCreateRuleAllowsDisabledOverlappingIngressPort(t *testing.T) {
 		Protocol:         "tcp",
 		Enabled:          true,
 	}
-	if _, err := svc.CreateRule(base); err != nil {
+	if _, _, err := svc.CreateRule(base); err != nil {
 		t.Fatalf("create base rule: %v", err)
 	}
 
 	disabled := base
 	disabled.Name = "Disabled Conflict"
 	disabled.Enabled = false
-	if _, err := svc.CreateRule(disabled); err != nil {
+	if _, conflict, err := svc.CreateRule(disabled); err != nil {
 		t.Fatalf("disabled conflict should be saved: %v", err)
+	} else if conflict != nil {
+		t.Fatalf("explicitly disabled rule should not report conflict, got %+v", conflict)
 	}
 }
 
@@ -182,7 +190,7 @@ func TestToggleRuleRejectsOverlappingIngressPort(t *testing.T) {
 	}
 
 	svc := NewRuleService(gdb, 19999)
-	if _, err := svc.CreateRule(RuleInput{
+	if _, _, err := svc.CreateRule(RuleInput{
 		Name:             "Enabled",
 		IngressMachineID: ingress.ID,
 		IngressPort:      41001,
@@ -194,7 +202,7 @@ func TestToggleRuleRejectsOverlappingIngressPort(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("create enabled rule: %v", err)
 	}
-	disabled, err := svc.CreateRule(RuleInput{
+	disabled, _, err := svc.CreateRule(RuleInput{
 		Name:             "Disabled",
 		IngressMachineID: ingress.ID,
 		IngressPort:      41001,
@@ -236,7 +244,7 @@ func TestUpdateRuleAllowsOwnIngressPort(t *testing.T) {
 	}
 
 	svc := NewRuleService(gdb, 19999)
-	rule, err := svc.CreateRule(RuleInput{
+	rule, _, err := svc.CreateRule(RuleInput{
 		Name:             "Base",
 		IngressMachineID: ingress.ID,
 		IngressPort:      41001,

@@ -278,8 +278,12 @@ async function submitRule(form) {
       await ruleStore.updateRule(editingRule.value.id, payload);
       ElMessage.success('规则已更新');
     } else {
-      await ruleStore.createRule(payload);
-      ElMessage.success('规则已创建');
+      const createdRule = await ruleStore.createRule(payload);
+      if (createdRule.conflict_rule) {
+        ElMessage.warning(`规则已创建但保持关闭：被 ${describeConflictRule(createdRule.conflict_rule)} 占用`);
+      } else {
+        ElMessage.success('规则已创建');
+      }
     }
     dialogVisible.value = false;
     editingRule.value = null;

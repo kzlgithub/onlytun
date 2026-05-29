@@ -81,16 +81,28 @@ func (s *RuleService) ListRules() ([]paneldb.ForwardRule, error) {
 	return rules, nil
 }
 
-func (s *RuleService) CreateRule(input RuleInput) (*paneldb.ForwardRule, error) {
+func (s *RuleService) CreateRule(input RuleInput) (*paneldb.ForwardRule, *paneldb.ForwardRule, error) {
 	rule, err := s.buildRule("", input)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+
+	var conflictRule *paneldb.ForwardRule
+	if input.Enabled {
+		conflictRule, err = s.findIngressPortConflict("", input.IngressMachineID, input.IngressPort, rule.Protocol)
+		if err != nil {
+			return nil, nil, err
+		}
+		if conflictRule != nil {
+			rule.Enabled = false
+		}
+	}
+
 	if err := s.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(rule).Error; err != nil {
 			return err
 		}
-		if !input.Enabled {
+		if !rule.Enabled {
 			if err := tx.Model(&paneldb.ForwardRule{}).Where("id = ?", rule.ID).UpdateColumn("enabled", false).Error; err != nil {
 				return err
 			}
@@ -98,9 +110,9 @@ func (s *RuleService) CreateRule(input RuleInput) (*paneldb.ForwardRule, error) 
 		}
 		return nil
 	}); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return rule, nil
+	return rule, conflictRule, nil
 }
 
 func (s *RuleService) UpdateRule(id string, input RuleInput) (*paneldb.ForwardRule, error) {
@@ -111,6 +123,11 @@ func (s *RuleService) UpdateRule(id string, input RuleInput) (*paneldb.ForwardRu
 	rule, err := s.buildRule(id, input)
 	if err != nil {
 		return nil, err
+	}
+	if input.Enabled {
+		if err := s.ensureIngressPortAvailable(id, input.IngressMachineID, input.IngressPort, rule.Protocol); err != nil {
+			return nil, err
+		}
 	}
 	updates := map[string]any{
 		"name":                rule.Name,
@@ -239,12 +256,6 @@ func (s *RuleService) buildRule(id string, input RuleInput) (*paneldb.ForwardRul
 		return nil, ErrInvalidMachine
 	}
 
-	if input.Enabled {
-		if err := s.ensureIngressPortAvailable(id, input.IngressMachineID, input.IngressPort, protocol); err != nil {
-			return nil, err
-		}
-	}
-
 	return &paneldb.ForwardRule{
 		ID:                id,
 		Name:              strings.TrimSpace(input.Name),
@@ -261,21 +272,33 @@ func (s *RuleService) buildRule(id string, input RuleInput) (*paneldb.ForwardRul
 }
 
 func (s *RuleService) ensureIngressPortAvailable(ruleID, ingressMachineID string, ingressPort int, protocol string) error {
+	conflict, err := s.findIngressPortConflict(ruleID, ingressMachineID, ingressPort, protocol)
+	if err != nil {
+		return err
+	}
+	if conflict != nil {
+		return &RulePortConflictError{Rule: *conflict}
+	}
+	return nil
+}
+
+func (s *RuleService) findIngressPortConflict(ruleID, ingressMachineID string, ingressPort int, protocol string) (*paneldb.ForwardRule, error) {
 	var rules []paneldb.ForwardRule
 	query := s.db.Where("enabled = ? AND ingress_machine_id = ? AND ingress_port = ?", true, ingressMachineID, ingressPort)
 	if strings.TrimSpace(ruleID) != "" {
 		query = query.Where("id <> ?", ruleID)
 	}
 	if err := query.Find(&rules).Error; err != nil {
-		return err
+		return nil, err
 	}
 
 	for _, rule := range rules {
 		if protocolsOverlap(protocol, rule.Protocol) {
-			return &RulePortConflictError{Rule: rule}
+			conflict := rule
+			return &conflict, nil
 		}
 	}
-	return nil
+	return nil, nil
 }
 
 func protocolsOverlap(left, right string) bool {

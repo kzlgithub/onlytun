@@ -21,12 +21,23 @@
             <el-button round :disabled="selectedRules.length === 0" @click="openExportDialog">
               导出选中
             </el-button>
+            <el-button
+              round
+              type="danger"
+              plain
+              :disabled="selectedRules.length === 0"
+              :loading="batchDeleting"
+              @click="batchDeleteRules"
+            >
+              删除选中
+            </el-button>
             <el-button type="primary" @click="openCreateDialog">新增规则</el-button>
           </div>
         </div>
       </template>
 
       <el-table
+        ref="ruleTableRef"
         :data="filteredRules"
         v-loading="initialLoading"
         row-key="id"
@@ -171,6 +182,8 @@ const dialogVisible = ref(false);
 const editingRule = ref(null);
 const submitting = ref(false);
 const selectedRules = ref([]);
+const ruleTableRef = ref(null);
+const batchDeleting = ref(false);
 const importDialogVisible = ref(false);
 const exportDialogVisible = ref(false);
 const importing = ref(false);
@@ -534,6 +547,40 @@ async function deleteRule(rule) {
   await ruleStore.deleteRule(rule.id);
   ElMessage.success('规则已删除');
   await loadData();
+}
+
+async function batchDeleteRules() {
+  const rules = [...selectedRules.value];
+  if (rules.length === 0) {
+    ElMessage.warning('请先选择要删除的规则');
+    return;
+  }
+
+  const preview = rules
+    .slice(0, 6)
+    .map((rule) => `“${rule.name}”`)
+    .join('、');
+  const suffix = rules.length > 6 ? ` 等 ${rules.length} 条规则` : '';
+  await ElMessageBox.confirm(
+    `确定删除 ${rules.length} 条规则吗？${preview}${suffix} 删除后不可恢复。`,
+    '批量删除确认',
+    {
+      type: 'warning',
+      confirmButtonText: '批量删除',
+      cancelButtonText: '取消',
+    },
+  );
+
+  batchDeleting.value = true;
+  try {
+    await ruleStore.deleteRules(rules.map((rule) => rule.id));
+    selectedRules.value = [];
+    ruleTableRef.value?.clearSelection?.();
+    ElMessage.success(`已删除 ${rules.length} 条规则`);
+    await loadData();
+  } finally {
+    batchDeleting.value = false;
+  }
 }
 
 onMounted(async () => {

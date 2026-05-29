@@ -155,6 +155,17 @@ export const useRuleStore = defineStore('rules', {
       delete this.snapshots[id];
       this.rules = this.rules.filter((item) => item.id !== id);
     },
+    async deleteRules(ids) {
+      const uniqueIds = [...new Set(ids.filter(Boolean))];
+      await Promise.all(uniqueIds.map((id) => ruleApi.remove(id)));
+      uniqueIds.forEach((id) => {
+        delete this.dayTotals[id];
+        delete this.rateMap[id];
+        delete this.snapshots[id];
+      });
+      const deleted = new Set(uniqueIds);
+      this.rules = this.rules.filter((item) => !deleted.has(item.id));
+    },
     async toggleRule(id) {
       const { data } = await ruleApi.toggle(id);
       const index = this.rules.findIndex((item) => item.id === id);

@@ -60,7 +60,7 @@ func (h *Handler) CreateRule(c *gin.Context) {
 
 	rule, err := h.Rules.CreateRule(input)
 	if err != nil {
-		c.JSON(ruleErrorStatus(err), gin.H{"error": err.Error()})
+		writeRuleError(c, err)
 		return
 	}
 	c.JSON(http.StatusCreated, rule)
@@ -75,7 +75,7 @@ func (h *Handler) UpdateRule(c *gin.Context) {
 
 	rule, err := h.Rules.UpdateRule(c.Param("id"), input)
 	if err != nil {
-		c.JSON(ruleErrorStatus(err), gin.H{"error": err.Error()})
+		writeRuleError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, rule)
@@ -96,14 +96,19 @@ func (h *Handler) DeleteRule(c *gin.Context) {
 func (h *Handler) ToggleRule(c *gin.Context) {
 	rule, err := h.Rules.ToggleRule(c.Param("id"))
 	if err != nil {
-		status := http.StatusInternalServerError
-		if errors.Is(err, service.ErrRuleNotFound) {
-			status = http.StatusNotFound
-		}
-		c.JSON(status, gin.H{"error": err.Error()})
+		writeRuleError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, rule)
+}
+
+func writeRuleError(c *gin.Context, err error) {
+	body := gin.H{"error": err.Error()}
+	var conflict *service.RulePortConflictError
+	if errors.As(err, &conflict) {
+		body["conflict_rule"] = conflict.Rule
+	}
+	c.JSON(ruleErrorStatus(err), body)
 }
 
 func ruleErrorStatus(err error) int {

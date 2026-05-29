@@ -315,7 +315,6 @@ function formatRuleLine(rule) {
 function parseImportText(text) {
   const rows = [];
   const errors = [];
-  const seenPorts = new Set();
   const lines = text.split(/\r?\n/);
 
   lines.forEach((line, index) => {
@@ -347,13 +346,8 @@ function parseImportText(text) {
       errors.push(`第 ${lineNo} 行目标端口必须是 1-65535 的整数`);
     }
 
-    const portKey = `${importDefaults.value.ingress_machine_id}:${ingressPort}:${importDefaults.value.protocol}`;
-    if (seenPorts.has(portKey)) {
-      errors.push(`第 ${lineNo} 行入口端口在本次导入内容中重复`);
-    }
-    seenPorts.add(portKey);
-
     rows.push({
+      line_no: lineNo,
       name,
       ingress_port: ingressPort,
       target_addr: targetAddr,
@@ -362,6 +356,31 @@ function parseImportText(text) {
   });
 
   return { rows, errors };
+}
+
+function protocolsOverlap(left, right) {
+  const normalizedLeft = String(left || '').toLowerCase();
+  const normalizedRight = String(right || '').toLowerCase();
+  if (normalizedLeft === 'both' || normalizedRight === 'both') {
+    return true;
+  }
+  return normalizedLeft === normalizedRight;
+}
+
+function findImportPortConflict(row, enabledCandidates) {
+  return enabledCandidates.find((rule) => (
+    rule.enabled !== false &&
+    rule.ingress_machine_id === importDefaults.value.ingress_machine_id &&
+    Number(rule.ingress_port) === Number(row.ingress_port) &&
+    protocolsOverlap(rule.protocol, importDefaults.value.protocol)
+  ));
+}
+
+function describeConflictRule(rule) {
+  if (!rule) {
+    return '未知规则';
+  }
+  return `${rule.name || rule.id}（端口 ${rule.ingress_port}，${protocolLabel(rule.protocol)}）`;
 }
 
 function ensureImportDefaults() {
@@ -397,20 +416,57 @@ async function importRules() {
 
   importing.value = true;
   let created = 0;
+  const disabledConflicts = [];
+  const enabledCandidates = ruleStore.rules.filter((rule) => rule.enabled);
   try {
     for (const row of rows) {
+      const conflict = findImportPortConflict(row, enabledCandidates);
+      const enabled = !conflict;
       await ruleStore.createRule({
         ...row,
         ingress_machine_id: importDefaults.value.ingress_machine_id,
         egress_machine_id: importDefaults.value.egress_machine_id,
         protocol: importDefaults.value.protocol,
-        enabled: true,
+        enabled,
         traffic_limit_bytes: 0,
         remark: '',
       }, { refresh: false });
       created += 1;
+      if (enabled) {
+        enabledCandidates.push({
+          ...row,
+          ingress_machine_id: importDefaults.value.ingress_machine_id,
+          protocol: importDefaults.value.protocol,
+          enabled: true,
+        });
+      } else {
+        disabledConflicts.push({
+          lineNo: row.line_no,
+          name: row.name,
+          conflict,
+        });
+      }
     }
-    ElMessage.success(`已导入 ${created} 条规则`);
+    if (disabledConflicts.length > 0) {
+      ElMessage.warning(`已导入 ${created} 条，其中 ${disabledConflicts.length} 条因端口占用保持关闭`);
+      try {
+        await ElMessageBox.alert(
+          disabledConflicts
+            .slice(0, 20)
+            .map((item) => `第 ${item.lineNo} 行 ${item.name}：被 ${describeConflictRule(item.conflict)} 占用`)
+            .join('\n'),
+          '端口占用提示',
+          {
+            confirmButtonText: '知道了',
+            customClass: 'import-conflict-alert',
+          },
+        );
+      } catch {
+        // Closing the notice does not mean the import failed.
+      }
+    } else {
+      ElMessage.success(`已导入 ${created} 条规则`);
+    }
     importDialogVisible.value = false;
     importText.value = '';
     await loadData();
@@ -556,6 +612,10 @@ onBeforeUnmount(() => {
 
 :deep(.batch-dialog .el-dialog__body) {
   padding-top: 12px;
+}
+
+:global(.import-conflict-alert .el-message-box__message) {
+  white-space: pre-line;
 }
 
 @media (max-width: 900px) {

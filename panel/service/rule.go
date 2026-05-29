@@ -21,6 +21,22 @@ var (
 	ErrRulePortConflict = errors.New("入口机端口已被占用")
 )
 
+type RulePortConflictError struct {
+	Rule paneldb.ForwardRule
+}
+
+func (e *RulePortConflictError) Error() string {
+	name := strings.TrimSpace(e.Rule.Name)
+	if name == "" {
+		name = e.Rule.ID
+	}
+	return fmt.Sprintf("入口机端口已被规则“%s”占用", name)
+}
+
+func (e *RulePortConflictError) Is(target error) bool {
+	return target == ErrRulePortConflict
+}
+
 type RuleService struct {
 	db         *gorm.DB
 	tunnelPort int
@@ -119,7 +135,13 @@ func (s *RuleService) ToggleRule(id string) (*paneldb.ForwardRule, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := s.db.Model(rule).Update("enabled", !rule.Enabled).Error; err != nil {
+	nextEnabled := !rule.Enabled
+	if nextEnabled {
+		if err := s.ensureIngressPortAvailable(rule.ID, rule.IngressMachineID, rule.IngressPort, rule.Protocol); err != nil {
+			return nil, err
+		}
+	}
+	if err := s.db.Model(rule).Update("enabled", nextEnabled).Error; err != nil {
 		return nil, err
 	}
 	return s.GetRule(id)
@@ -206,8 +228,10 @@ func (s *RuleService) buildRule(id string, input RuleInput) (*paneldb.ForwardRul
 		return nil, ErrInvalidMachine
 	}
 
-	if err := s.ensureIngressPortAvailable(id, input.IngressMachineID, input.IngressPort, protocol); err != nil {
-		return nil, err
+	if input.Enabled {
+		if err := s.ensureIngressPortAvailable(id, input.IngressMachineID, input.IngressPort, protocol); err != nil {
+			return nil, err
+		}
 	}
 
 	return &paneldb.ForwardRule{
@@ -227,7 +251,7 @@ func (s *RuleService) buildRule(id string, input RuleInput) (*paneldb.ForwardRul
 
 func (s *RuleService) ensureIngressPortAvailable(ruleID, ingressMachineID string, ingressPort int, protocol string) error {
 	var rules []paneldb.ForwardRule
-	query := s.db.Where("ingress_machine_id = ? AND ingress_port = ?", ingressMachineID, ingressPort)
+	query := s.db.Where("enabled = ? AND ingress_machine_id = ? AND ingress_port = ?", true, ingressMachineID, ingressPort)
 	if strings.TrimSpace(ruleID) != "" {
 		query = query.Where("id <> ?", ruleID)
 	}
@@ -237,7 +261,7 @@ func (s *RuleService) ensureIngressPortAvailable(ruleID, ingressMachineID string
 
 	for _, rule := range rules {
 		if protocolsOverlap(protocol, rule.Protocol) {
-			return ErrRulePortConflict
+			return &RulePortConflictError{Rule: rule}
 		}
 	}
 	return nil

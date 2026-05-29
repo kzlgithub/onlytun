@@ -106,6 +106,11 @@ func TestCreateRuleRejectsOverlappingIngressPort(t *testing.T) {
 	conflict.Name = "Conflict"
 	if _, err := svc.CreateRule(conflict); !errors.Is(err, ErrRulePortConflict) {
 		t.Fatalf("expected ErrRulePortConflict, got %v", err)
+	} else {
+		var conflictErr *RulePortConflictError
+		if !errors.As(err, &conflictErr) || conflictErr.Rule.Name != "Base" {
+			t.Fatalf("expected conflict rule Base, got %#v", err)
+		}
 	}
 
 	udpSamePort := base
@@ -120,6 +125,91 @@ func TestCreateRuleRejectsOverlappingIngressPort(t *testing.T) {
 	bothConflict.Protocol = "both"
 	if _, err := svc.CreateRule(bothConflict); !errors.Is(err, ErrRulePortConflict) {
 		t.Fatalf("expected both protocol conflict, got %v", err)
+	}
+}
+
+func TestCreateRuleAllowsDisabledOverlappingIngressPort(t *testing.T) {
+	gdb, err := paneldb.OpenDatabase(filepath.Join(t.TempDir(), "panel.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+
+	ingress := paneldb.Machine{ID: "ingress-1", Name: "Ingress", Role: "ingress", Token: "token-ingress"}
+	egress := paneldb.Machine{ID: "egress-1", Name: "Egress", Role: "egress", Token: "token-egress", IP: "127.0.0.1"}
+	if err := gdb.Create(&ingress).Error; err != nil {
+		t.Fatalf("create ingress: %v", err)
+	}
+	if err := gdb.Create(&egress).Error; err != nil {
+		t.Fatalf("create egress: %v", err)
+	}
+
+	svc := NewRuleService(gdb, 19999)
+	base := RuleInput{
+		Name:             "Base",
+		IngressMachineID: ingress.ID,
+		IngressPort:      41001,
+		EgressMachineID:  egress.ID,
+		TargetAddr:       "example.com",
+		TargetPort:       443,
+		Protocol:         "tcp",
+		Enabled:          true,
+	}
+	if _, err := svc.CreateRule(base); err != nil {
+		t.Fatalf("create base rule: %v", err)
+	}
+
+	disabled := base
+	disabled.Name = "Disabled Conflict"
+	disabled.Enabled = false
+	if _, err := svc.CreateRule(disabled); err != nil {
+		t.Fatalf("disabled conflict should be saved: %v", err)
+	}
+}
+
+func TestToggleRuleRejectsOverlappingIngressPort(t *testing.T) {
+	gdb, err := paneldb.OpenDatabase(filepath.Join(t.TempDir(), "panel.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+
+	ingress := paneldb.Machine{ID: "ingress-1", Name: "Ingress", Role: "ingress", Token: "token-ingress"}
+	egress := paneldb.Machine{ID: "egress-1", Name: "Egress", Role: "egress", Token: "token-egress", IP: "127.0.0.1"}
+	if err := gdb.Create(&ingress).Error; err != nil {
+		t.Fatalf("create ingress: %v", err)
+	}
+	if err := gdb.Create(&egress).Error; err != nil {
+		t.Fatalf("create egress: %v", err)
+	}
+
+	svc := NewRuleService(gdb, 19999)
+	if _, err := svc.CreateRule(RuleInput{
+		Name:             "Enabled",
+		IngressMachineID: ingress.ID,
+		IngressPort:      41001,
+		EgressMachineID:  egress.ID,
+		TargetAddr:       "example.com",
+		TargetPort:       443,
+		Protocol:         "tcp",
+		Enabled:          true,
+	}); err != nil {
+		t.Fatalf("create enabled rule: %v", err)
+	}
+	disabled, err := svc.CreateRule(RuleInput{
+		Name:             "Disabled",
+		IngressMachineID: ingress.ID,
+		IngressPort:      41001,
+		EgressMachineID:  egress.ID,
+		TargetAddr:       "example.org",
+		TargetPort:       443,
+		Protocol:         "tcp",
+		Enabled:          false,
+	})
+	if err != nil {
+		t.Fatalf("create disabled rule: %v", err)
+	}
+
+	if _, err := svc.ToggleRule(disabled.ID); !errors.Is(err, ErrRulePortConflict) {
+		t.Fatalf("expected toggle conflict, got %v", err)
 	}
 }
 

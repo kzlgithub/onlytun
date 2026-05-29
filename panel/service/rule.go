@@ -86,7 +86,7 @@ func (s *RuleService) CreateRule(input RuleInput) (*paneldb.ForwardRule, error) 
 	if err != nil {
 		return nil, err
 	}
-	if err := s.db.Create(rule).Error; err != nil {
+	if err := s.db.Select("*").Create(rule).Error; err != nil {
 		return nil, err
 	}
 	return rule, nil

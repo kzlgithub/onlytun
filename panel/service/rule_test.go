@@ -207,6 +207,13 @@ func TestToggleRuleRejectsOverlappingIngressPort(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create disabled rule: %v", err)
 	}
+	savedDisabled, err := svc.GetRule(disabled.ID)
+	if err != nil {
+		t.Fatalf("get disabled rule: %v", err)
+	}
+	if savedDisabled.Enabled {
+		t.Fatal("disabled rule should be persisted as disabled")
+	}
 
 	if _, err := svc.ToggleRule(disabled.ID); !errors.Is(err, ErrRulePortConflict) {
 		t.Fatalf("expected toggle conflict, got %v", err)

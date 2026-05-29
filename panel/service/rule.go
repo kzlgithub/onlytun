@@ -86,7 +86,18 @@ func (s *RuleService) CreateRule(input RuleInput) (*paneldb.ForwardRule, error) 
 	if err != nil {
 		return nil, err
 	}
-	if err := s.db.Select("*").Create(rule).Error; err != nil {
+	if err := s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(rule).Error; err != nil {
+			return err
+		}
+		if !input.Enabled {
+			if err := tx.Model(&paneldb.ForwardRule{}).Where("id = ?", rule.ID).UpdateColumn("enabled", false).Error; err != nil {
+				return err
+			}
+			rule.Enabled = false
+		}
+		return nil
+	}); err != nil {
 		return nil, err
 	}
 	return rule, nil

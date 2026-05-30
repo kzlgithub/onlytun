@@ -126,7 +126,9 @@ func ruleErrorStatus(err error) int {
 		return http.StatusNotFound
 	case errors.Is(err, service.ErrInvalidMachine),
 		errors.Is(err, service.ErrInvalidProtocol),
-		errors.Is(err, service.ErrInvalidTarget):
+		errors.Is(err, service.ErrInvalidTarget),
+		errors.Is(err, service.ErrInvalidPort),
+		errors.Is(err, service.ErrInvalidTraffic):
 		return http.StatusBadRequest
 	case errors.Is(err, service.ErrRulePortConflict):
 		return http.StatusConflict

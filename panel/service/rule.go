@@ -17,6 +17,8 @@ var (
 	ErrInvalidProtocol  = errors.New("service: invalid protocol")
 	ErrInvalidMachine   = errors.New("service: invalid machine reference")
 	ErrInvalidTarget    = errors.New("service: invalid target address")
+	ErrInvalidPort      = errors.New("service: invalid port")
+	ErrInvalidTraffic   = errors.New("service: invalid traffic limit")
 	ErrMachineIPMissing = errors.New("service: egress machine has no IP")
 	ErrRulePortConflict = errors.New("入口机端口已被占用")
 )
@@ -239,10 +241,10 @@ func (s *RuleService) buildRule(id string, input RuleInput) (*paneldb.ForwardRul
 		return nil, ErrInvalidProtocol
 	}
 	if input.IngressPort <= 0 || input.IngressPort > 65535 || input.TargetPort <= 0 || input.TargetPort > 65535 {
-		return nil, fmt.Errorf("service: invalid port")
+		return nil, ErrInvalidPort
 	}
 	if input.TrafficLimitBytes < 0 {
-		return nil, fmt.Errorf("service: invalid traffic limit")
+		return nil, ErrInvalidTraffic
 	}
 	if strings.TrimSpace(input.TargetAddr) == "" {
 		return nil, ErrInvalidTarget

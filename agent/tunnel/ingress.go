@@ -16,9 +16,12 @@ import (
 )
 
 const (
-	stopWaitTimeout = 30 * time.Second
-	copyBufferSize  = 32 * 1024
-	udpIdleTimeout  = 30 * time.Second
+	stopWaitTimeout       = 30 * time.Second
+	copyBufferSize        = 32 * 1024
+	udpIdleTimeout        = 30 * time.Second
+	udpCleanupInterval    = 5 * time.Second
+	udpSessionLimit       = 1024
+	udpSessionSendQueue   = 256
 )
 
 var (
@@ -39,9 +42,13 @@ type IngressConfig struct {
 
 // Stats 流量统计。
 type Stats struct {
-	ActiveConns int64
-	BytesUp     int64
-	BytesDown   int64
+	ActiveConns     int64
+	BytesUp         int64
+	BytesDown       int64
+	UDPSessions     int64
+	UDPDropped      int64
+	UDPDecodeErrors int64
+	UDPReplayErrors int64
 }
 
 // IngressTunnel 入口机隧道。
@@ -59,6 +66,9 @@ type IngressTunnel struct {
 	activeConns atomic.Int64
 	bytesUp     atomic.Int64
 	bytesDown   atomic.Int64
+	udpDropped  atomic.Int64
+	udpDecodeErrors atomic.Int64
+	udpReplayErrors atomic.Int64
 
 	closerMu sync.Mutex
 	closers  map[io.Closer]struct{}
@@ -74,7 +84,9 @@ type udpClientSession struct {
 	udpEncoder *frame.UDPFramer
 	udpDecoder *frame.UDPFramer
 
-	writeMu   sync.Mutex
+	sendQueue chan []byte
+	done      chan struct{}
+	lastSeen  atomic.Int64
 	closeOnce sync.Once
 }
 
@@ -115,8 +127,9 @@ func (t *IngressTunnel) Start() error {
 			return err
 		}
 		t.udpConn = udpConn
-		t.wg.Add(1)
+		t.wg.Add(2)
 		go t.runUDPAcceptLoop()
+		go t.runUDPCleanupLoop()
 	case "both":
 		ln, err := net.Listen("tcp", t.cfg.ListenAddr)
 		if err != nil {
@@ -129,9 +142,10 @@ func (t *IngressTunnel) Start() error {
 		}
 		t.tcpListener = ln
 		t.udpConn = udpConn
-		t.wg.Add(2)
+		t.wg.Add(3)
 		go t.runTCPAcceptLoop()
 		go t.runUDPAcceptLoop()
+		go t.runUDPCleanupLoop()
 	default:
 		return errUnsupportedProto
 	}
@@ -169,10 +183,18 @@ func (t *IngressTunnel) Stop() {
 
 // GetStats 获取当前统计数据。
 func (t *IngressTunnel) GetStats() Stats {
+	t.udpMu.Lock()
+	udpSessions := len(t.udpSessions)
+	t.udpMu.Unlock()
+
 	return Stats{
-		ActiveConns: t.activeConns.Load(),
-		BytesUp:     t.bytesUp.Load(),
-		BytesDown:   t.bytesDown.Load(),
+		ActiveConns:     t.activeConns.Load(),
+		BytesUp:         t.bytesUp.Load(),
+		BytesDown:       t.bytesDown.Load(),
+		UDPSessions:     int64(udpSessions),
+		UDPDropped:      t.udpDropped.Load(),
+		UDPDecodeErrors: t.udpDecodeErrors.Load(),
+		UDPReplayErrors: t.udpReplayErrors.Load(),
 	}
 }
 
@@ -218,20 +240,12 @@ func (t *IngressTunnel) runUDPAcceptLoop() {
 		payload := append([]byte(nil), buf[:n]...)
 		sess, err := t.getOrCreateUDPSession(clientAddr)
 		if err != nil {
+			t.udpDropped.Add(1)
 			continue
 		}
 
-		encoded, encErr := sess.udpEncoder.EncodePacket(payload)
-		if encErr != nil {
-			t.closeUDPSession(clientAddr.String())
-			continue
-		}
-
-		sess.writeMu.Lock()
-		err = sess.framer.WriteFrame(sess.egressConn, encoded)
-		sess.writeMu.Unlock()
-		if err != nil {
-			t.closeUDPSession(clientAddr.String())
+		if !sess.enqueue(payload) {
+			t.udpDropped.Add(1)
 			continue
 		}
 
@@ -322,13 +336,23 @@ func (t *IngressTunnel) pipeTCP(clientConn net.Conn, egressConn net.Conn, framer
 
 func (t *IngressTunnel) getOrCreateUDPSession(clientAddr *net.UDPAddr) (*udpClientSession, error) {
 	key := clientAddr.String()
+	now := time.Now()
 
 	t.udpMu.Lock()
 	if sess, ok := t.udpSessions[key]; ok {
+		sess.touch(now)
 		t.udpMu.Unlock()
 		return sess, nil
 	}
+	evictKey := ""
+	if len(t.udpSessions) >= udpSessionLimit {
+		evictKey = t.oldestUDPSessionKeyLocked()
+	}
 	t.udpMu.Unlock()
+
+	if evictKey != "" {
+		t.closeUDPSession(evictKey)
+	}
 
 	egressConn, framer, result, err := t.openEgressTunnel()
 	if err != nil {
@@ -352,28 +376,97 @@ func (t *IngressTunnel) getOrCreateUDPSession(clientAddr *net.UDPAddr) (*udpClie
 		framer:     framer,
 		udpEncoder: udpEncoder,
 		udpDecoder: udpDecoder,
+		sendQueue:  make(chan []byte, udpSessionSendQueue),
+		done:       make(chan struct{}),
 	}
+	sess.touch(now)
 
 	if err := sess.framer.WriteFrame(sess.egressConn, encodeTargetAddr(2, t.cfg.TargetAddr)); err != nil {
 		egressConn.Close()
 		return nil, err
 	}
 
+	t.trackCloser(egressConn)
+	t.activeConns.Add(1)
+
 	t.udpMu.Lock()
 	if existing, ok := t.udpSessions[key]; ok {
 		t.udpMu.Unlock()
+		existing.touch(time.Now())
+		t.untrackCloser(egressConn)
+		t.activeConns.Add(-1)
 		egressConn.Close()
 		return existing, nil
 	}
 	t.udpSessions[key] = sess
 	t.udpMu.Unlock()
 
-	t.trackCloser(egressConn)
-	t.activeConns.Add(1)
+	t.wg.Add(1)
+	go t.runUDPSendLoop(key, sess)
 	t.wg.Add(1)
 	go t.runUDPResponseLoop(key, sess)
 
 	return sess, nil
+}
+
+func (t *IngressTunnel) oldestUDPSessionKeyLocked() string {
+	var oldestKey string
+	var oldestSeen int64
+	for key, sess := range t.udpSessions {
+		seen := sess.lastSeen.Load()
+		if oldestKey == "" || seen < oldestSeen {
+			oldestKey = key
+			oldestSeen = seen
+		}
+	}
+	return oldestKey
+}
+
+func (s *udpClientSession) touch(now time.Time) {
+	s.lastSeen.Store(now.UnixNano())
+}
+
+func (s *udpClientSession) idleFor(now time.Time) time.Duration {
+	seen := s.lastSeen.Load()
+	if seen == 0 {
+		return 0
+	}
+	return now.Sub(time.Unix(0, seen))
+}
+
+func (s *udpClientSession) enqueue(payload []byte) bool {
+	s.touch(time.Now())
+	select {
+	case <-s.done:
+		return false
+	case s.sendQueue <- payload:
+		return true
+	default:
+		return false
+	}
+}
+
+func (t *IngressTunnel) runUDPSendLoop(key string, sess *udpClientSession) {
+	defer t.wg.Done()
+	defer t.closeUDPSession(key)
+
+	for {
+		select {
+		case <-t.ctx.Done():
+			return
+		case <-sess.done:
+			return
+		case payload := <-sess.sendQueue:
+			encoded, encErr := sess.udpEncoder.EncodePacket(payload)
+			if encErr != nil {
+				t.udpDropped.Add(1)
+				return
+			}
+			if err := sess.framer.WriteFrame(sess.egressConn, encoded); err != nil {
+				return
+			}
+		}
+	}
 }
 
 func (t *IngressTunnel) runUDPResponseLoop(key string, sess *udpClientSession) {
@@ -389,8 +482,13 @@ func (t *IngressTunnel) runUDPResponseLoop(key string, sess *udpClientSession) {
 		if len(encoded) > 0 {
 			payload, decErr := sess.udpDecoder.DecodePacket(encoded)
 			if decErr != nil {
+				t.udpDecodeErrors.Add(1)
+				if strings.Contains(decErr.Error(), "replay") {
+					t.udpReplayErrors.Add(1)
+				}
 				return
 			}
+			sess.touch(time.Now())
 			if len(payload) > 0 {
 				if _, writeErr := t.udpConn.WriteToUDP(payload, sess.clientAddr); writeErr != nil {
 					return
@@ -399,8 +497,43 @@ func (t *IngressTunnel) runUDPResponseLoop(key string, sess *udpClientSession) {
 			}
 		}
 		if err != nil {
+			if ne, ok := err.(net.Error); ok && ne.Timeout() && sess.idleFor(time.Now()) < udpIdleTimeout {
+				continue
+			}
 			return
 		}
+	}
+}
+
+func (t *IngressTunnel) runUDPCleanupLoop() {
+	defer t.wg.Done()
+
+	ticker := time.NewTicker(udpCleanupInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-t.ctx.Done():
+			return
+		case now := <-ticker.C:
+			t.closeIdleUDPSessions(now)
+		}
+	}
+}
+
+func (t *IngressTunnel) closeIdleUDPSessions(now time.Time) {
+	var expired []string
+
+	t.udpMu.Lock()
+	for key, sess := range t.udpSessions {
+		if sess.idleFor(now) >= udpIdleTimeout {
+			expired = append(expired, key)
+		}
+	}
+	t.udpMu.Unlock()
+
+	for _, key := range expired {
+		t.closeUDPSession(key)
 	}
 }
 
@@ -416,8 +549,13 @@ func (t *IngressTunnel) closeUDPSession(key string) {
 	}
 
 	session.closeOnce.Do(func() {
+		if session.done != nil {
+			close(session.done)
+		}
 		t.untrackCloser(session.egressConn)
-		_ = session.egressConn.Close()
+		if session.egressConn != nil {
+			_ = session.egressConn.Close()
+		}
 		t.activeConns.Add(-1)
 	})
 }

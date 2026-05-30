@@ -3,6 +3,7 @@ package tunnel
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"io"
 	"net"
 	"testing"
@@ -145,6 +146,79 @@ func TestOnlyTunUDPEndToEnd(t *testing.T) {
 	waitForCondition(t, func() bool {
 		return ingress.GetStats().ActiveConns == 0 && egress.GetStats().ActiveConns == 0
 	})
+}
+
+func TestOnlyTunUDPMultipleClientsRoundTrip(t *testing.T) {
+	psk := bytes.Repeat([]byte{0x75}, 32)
+
+	targetAddr, stopTarget := startUDPEchoServer(t)
+	defer stopTarget()
+
+	egress := NewEgressTunnel(EgressConfig{
+		ListenAddr: "127.0.0.1:0",
+		PSK:        psk,
+	})
+	if err := egress.Start(); err != nil {
+		t.Fatalf("start egress: %v", err)
+	}
+	defer egress.Stop()
+
+	ingress := NewIngressTunnel(IngressConfig{
+		ListenAddr: "127.0.0.1:0",
+		Protocol:   "udp",
+		EgressAddr: egress.listener.Addr().String(),
+		TargetAddr: targetAddr,
+		PSK:        psk,
+		RuleID:     "udp-multi-client",
+	})
+	if err := ingress.Start(); err != nil {
+		t.Fatalf("start ingress: %v", err)
+	}
+	defer ingress.Stop()
+
+	remoteAddr, err := net.ResolveUDPAddr("udp", ingress.udpConn.LocalAddr().String())
+	if err != nil {
+		t.Fatalf("resolve ingress udp: %v", err)
+	}
+
+	errCh := make(chan error, 8)
+	for i := 0; i < 8; i++ {
+		i := i
+		go func() {
+			clientConn, err := net.DialUDP("udp", nil, remoteAddr)
+			if err != nil {
+				errCh <- err
+				return
+			}
+			defer clientConn.Close()
+
+			for j := 0; j < 8; j++ {
+				payload := []byte{byte(i), byte(j), 0xaa, 0x55}
+				if _, err := clientConn.Write(payload); err != nil {
+					errCh <- err
+					return
+				}
+				_ = clientConn.SetReadDeadline(time.Now().Add(3 * time.Second))
+				reply := make([]byte, len(payload))
+				n, err := clientConn.Read(reply)
+				if err != nil {
+					errCh <- err
+					return
+				}
+				if !bytes.Equal(reply[:n], payload) {
+					errCh <- errors.New("udp multi-client reply mismatch")
+					return
+				}
+			}
+			errCh <- nil
+		}()
+	}
+
+	for i := 0; i < 8; i++ {
+		if err := <-errCh; err != nil {
+			t.Fatalf("udp client failed: %v", err)
+		}
+	}
 }
 
 func TestOnlyTunTCPWrongPSKClosesClient(t *testing.T) {
@@ -437,6 +511,80 @@ func TestIngressUDPResponseLoopClosesSessionOnDecodeError(t *testing.T) {
 	})
 	expectConnClosed(t, egressClient)
 	waitForDone(t, done)
+}
+
+func TestIngressUDPSessionQueueDropsWhenFull(t *testing.T) {
+	sess := &udpClientSession{
+		sendQueue: make(chan []byte, 1),
+		done:      make(chan struct{}),
+	}
+	defer close(sess.done)
+
+	if !sess.enqueue([]byte("first")) {
+		t.Fatal("expected first datagram to enqueue")
+	}
+	if sess.enqueue([]byte("second")) {
+		t.Fatal("expected full UDP session queue to reject datagram")
+	}
+}
+
+func TestIngressUDPCleanupClosesIdleSessions(t *testing.T) {
+	tunnel := NewIngressTunnel(IngressConfig{})
+	clientConn, serverConn := net.Pipe()
+	defer clientConn.Close()
+
+	key := "127.0.0.1:50000"
+	sess := &udpClientSession{
+		egressConn: serverConn,
+		sendQueue:  make(chan []byte, 1),
+		done:       make(chan struct{}),
+	}
+	sess.touch(time.Now().Add(-2 * udpIdleTimeout))
+
+	tunnel.udpMu.Lock()
+	tunnel.udpSessions[key] = sess
+	tunnel.udpMu.Unlock()
+	tunnel.trackCloser(serverConn)
+	tunnel.activeConns.Store(1)
+
+	tunnel.closeIdleUDPSessions(time.Now())
+
+	waitForCondition(t, func() bool {
+		tunnel.udpMu.Lock()
+		_, ok := tunnel.udpSessions[key]
+		tunnel.udpMu.Unlock()
+		return !ok && tunnel.GetStats().ActiveConns == 0
+	})
+
+	select {
+	case <-sess.done:
+	default:
+		t.Fatal("expected idle UDP session done channel to close")
+	}
+}
+
+func TestIngressUDPCleanupKeepsActiveSessions(t *testing.T) {
+	tunnel := NewIngressTunnel(IngressConfig{})
+	key := "127.0.0.1:50001"
+	sess := &udpClientSession{
+		sendQueue: make(chan []byte, 1),
+		done:      make(chan struct{}),
+	}
+	defer close(sess.done)
+	sess.touch(time.Now())
+
+	tunnel.udpMu.Lock()
+	tunnel.udpSessions[key] = sess
+	tunnel.udpMu.Unlock()
+
+	tunnel.closeIdleUDPSessions(time.Now())
+
+	tunnel.udpMu.Lock()
+	_, ok := tunnel.udpSessions[key]
+	tunnel.udpMu.Unlock()
+	if !ok {
+		t.Fatal("active UDP session should not be cleaned up")
+	}
 }
 
 type tunnelDirectionalKeys struct {

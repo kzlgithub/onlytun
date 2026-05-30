@@ -314,6 +314,7 @@ func (t *EgressTunnel) bridgeUDPTunnel(tunnelConn, targetConn net.Conn, framer *
 	go func() {
 		buf := make([]byte, 65535)
 		for {
+			_ = targetConn.SetReadDeadline(time.Now().Add(udpIdleTimeout))
 			n, err := targetConn.Read(buf)
 			if n > 0 {
 				encoded, encErr := udpEncoder.EncodePacket(buf[:n])
@@ -326,6 +327,9 @@ func (t *EgressTunnel) bridgeUDPTunnel(tunnelConn, targetConn net.Conn, framer *
 				}
 			}
 			if err != nil {
+				if ne, ok := err.(net.Error); ok && ne.Timeout() {
+					continue
+				}
 				errCh <- err
 				return
 			}

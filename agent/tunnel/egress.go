@@ -121,6 +121,7 @@ func (t *EgressTunnel) acceptLoop() {
 			return
 		}
 
+		configureTCPConn(conn)
 		t.wg.Add(1)
 		go t.handleTunnelConn(conn)
 	}
@@ -164,7 +165,7 @@ func (t *EgressTunnel) handleTunnelConn(tunnelConn net.Conn) {
 		return
 	}
 
-	targetConn, err := net.Dial(network, targetAddr)
+	targetConn, err := dialNetwork(network, targetAddr)
 	if err != nil {
 		_ = tunnelConn.Close()
 		return
@@ -223,7 +224,8 @@ func (t *EgressTunnel) bridgeTunnel(tunnelConn net.Conn, targetConn net.Conn, fr
 	}()
 
 	go func() {
-		buf := make([]byte, copyBufferSize)
+		buf := acquireCopyBuffer()
+		defer releaseCopyBuffer(buf)
 		for {
 			n, err := targetConn.Read(buf)
 			if n > 0 {

@@ -192,6 +192,7 @@ func (t *IngressTunnel) runTCPAcceptLoop() {
 			return
 		}
 
+		configureTCPConn(conn)
 		t.wg.Add(1)
 		go t.handleTCPClient(conn)
 	}
@@ -277,7 +278,8 @@ func (t *IngressTunnel) pipeTCP(clientConn net.Conn, egressConn net.Conn, framer
 	errCh := make(chan error, 2)
 
 	go func() {
-		buf := make([]byte, copyBufferSize)
+		buf := acquireCopyBuffer()
+		defer releaseCopyBuffer(buf)
 		for {
 			n, err := clientConn.Read(buf)
 			if n > 0 {
@@ -421,7 +423,7 @@ func (t *IngressTunnel) closeUDPSession(key string) {
 }
 
 func (t *IngressTunnel) openEgressTunnel() (net.Conn, *frame.TCPFramer, *session.HandshakeResult, error) {
-	conn, err := net.Dial("tcp", t.cfg.EgressAddr)
+	conn, err := dialNetwork("tcp", t.cfg.EgressAddr)
 	if err != nil {
 		return nil, nil, nil, err
 	}

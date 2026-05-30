@@ -17,6 +17,7 @@ AGENT_BIN="/usr/local/bin/onlytun-agent"
 CONFIG_DIR="/etc/onlytun"
 CONFIG_PATH="${CONFIG_DIR}/cache.json"
 SERVICE_PATH="/etc/systemd/system/onlytun-agent.service"
+SYSCTL_PATH="/etc/sysctl.d/99-onlytun-tcp.conf"
 DEFAULT_TUNNEL_ADDR="0.0.0.0:19999"
 RELEASE_BASE_URL="${ONLYTUN_RELEASE_BASE_URL:-https://github.com/kzlgithub/onlytun/releases/latest/download}"
 
@@ -205,6 +206,24 @@ prepare_dirs() {
   success "Directories are ready."
 }
 
+apply_tcp_tuning() {
+  cat >"$SYSCTL_PATH" <<EOF
+net.core.somaxconn = 4096
+net.core.netdev_max_backlog = 5000
+net.ipv4.tcp_max_syn_backlog = 4096
+net.ipv4.ip_local_port_range = 10000 65000
+net.ipv4.tcp_fin_timeout = 15
+net.ipv4.tcp_tw_reuse = 1
+net.ipv4.tcp_syncookies = 1
+EOF
+
+  if sysctl -p "$SYSCTL_PATH" >/dev/null 2>&1; then
+    success "TCP tuning applied via ${SYSCTL_PATH}"
+  else
+    warn "TCP tuning file was written, but sysctl failed to apply all settings immediately."
+  fi
+}
+
 download_agent_to() {
   local dest="$1"
   local url="${RELEASE_BASE_URL}/onlytun-agent-linux-${ARCH}"
@@ -303,6 +322,8 @@ Type=simple
 ExecStart=${AGENT_BIN} --config ${CONFIG_PATH}
 Restart=always
 RestartSec=5
+LimitNOFILE=1048576
+LimitNPROC=65535
 
 [Install]
 WantedBy=multi-user.target
@@ -337,6 +358,7 @@ uninstall_agent() {
   systemctl disable onlytun-agent >/dev/null 2>&1 || true
   pkill -x onlytun-agent >/dev/null 2>&1 || true
   rm -f "$SERVICE_PATH" /lib/systemd/system/onlytun-agent.service
+  rm -f "$SYSCTL_PATH"
   rm -f "$AGENT_BIN"
   rm -rf "$CONFIG_DIR"
   systemctl daemon-reload >/dev/null 2>&1 || true
@@ -349,6 +371,7 @@ update_agent() {
   detect_os
   detect_arch
   prepare_dirs
+  apply_tcp_tuning
 
   local tmp_file
   tmp_file="$(mktemp /tmp/onlytun-agent.XXXXXX)" || fail "Failed to create temporary file."
@@ -364,6 +387,9 @@ update_agent() {
   chmod +x "$AGENT_BIN" || fail "Failed to chmod updated Agent binary."
   rm -f "$tmp_file"
 
+  if [ -f "$SERVICE_PATH" ]; then
+    write_service
+  fi
   systemctl daemon-reload || fail "systemctl daemon-reload failed."
   systemctl restart onlytun-agent || fail "Failed to restart onlytun-agent."
   sleep 3
@@ -447,6 +473,7 @@ main() {
   detect_os
   detect_arch
   prepare_dirs
+  apply_tcp_tuning
   download_agent
   fetch_public_ip
   register_machine

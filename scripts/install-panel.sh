@@ -8,6 +8,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m'
 
 PANEL_PORT="8080"
+PANEL_PORT_SET="false"
 PANEL_PASSWORD=""
 ACTION=""
 
@@ -52,6 +53,7 @@ parse_args() {
     case "$1" in
       --port)
         PANEL_PORT="${2:-}"
+        PANEL_PORT_SET="true"
         shift 2
         ;;
       --password)
@@ -202,6 +204,18 @@ escape_systemd_value() {
   printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
 }
 
+load_existing_service_config() {
+  [ -f "$SERVICE_PATH" ] || return 0
+  if [ -z "$PANEL_PASSWORD" ]; then
+    PANEL_PASSWORD="$(sed -n 's/^Environment="ONLYTUN_PASSWORD=\(.*\)"$/\1/p' "$SERVICE_PATH" | head -1)"
+  fi
+  if [ "$PANEL_PORT_SET" != "true" ]; then
+    local existing_port
+    existing_port="$(sed -n 's/^Environment="ONLYTUN_PORT=\([0-9][0-9]*\)"$/\1/p' "$SERVICE_PATH" | head -1)"
+    [ -n "$existing_port" ] && PANEL_PORT="$existing_port"
+  fi
+}
+
 write_service() {
   local escaped_password
   escaped_password="$(escape_systemd_value "$PANEL_PASSWORD")"
@@ -218,6 +232,8 @@ Environment="ONLYTUN_PORT=${PANEL_PORT}"
 ExecStart=${PANEL_BIN}
 Restart=always
 RestartSec=5
+LimitNOFILE=1048576
+LimitNPROC=65535
 
 [Install]
 WantedBy=multi-user.target
@@ -298,6 +314,7 @@ update_panel() {
   detect_os
   detect_arch
   prepare_dirs
+  load_existing_service_config
 
   local tmp_file
   tmp_file="$(mktemp /tmp/onlytun-panel.XXXXXX)" || fail "Failed to create temporary file."
@@ -313,6 +330,11 @@ update_panel() {
   chmod +x "$PANEL_BIN" || fail "Failed to chmod updated panel binary."
   rm -f "$tmp_file"
 
+  if [ -f "$SERVICE_PATH" ] && [ -n "${PANEL_PASSWORD:-}" ]; then
+    write_service
+  elif [ -f "$SERVICE_PATH" ]; then
+    warn "Could not read existing panel password from ${SERVICE_PATH}; service resource limits were not rewritten."
+  fi
   systemctl daemon-reload || fail "systemctl daemon-reload failed."
   systemctl restart "$SERVICE_NAME" || fail "Failed to restart ${SERVICE_NAME}."
   sleep 3

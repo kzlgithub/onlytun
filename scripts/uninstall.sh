@@ -143,8 +143,9 @@ stop_and_disable_service() {
 
 remove_agent() {
   stop_and_disable_service "onlytun-agent"
+  rm -f /etc/sysctl.d/99-onlytun-tcp.conf
   rm -f /usr/local/bin/onlytun-agent
-  success "Agent binary removed."
+  success "Agent binary and OnlyTun TCP tuning file removed."
 }
 
 remove_panel() {

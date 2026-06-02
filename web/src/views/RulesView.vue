@@ -36,10 +36,19 @@
         </div>
       </template>
 
+      <div v-if="deviceGroupMode" class="disabled-mode-banner">
+        <div>
+          <strong>单条转发规则当前已失效</strong>
+          <span>设备组规则模式已开启，入口机只会下发设备组规则。这里的单条规则会保留数据，但不会运行。</span>
+        </div>
+      </div>
+
       <el-table
         ref="ruleTableRef"
         :data="filteredRules"
         v-loading="initialLoading"
+        :row-class-name="ruleRowClassName"
+        :class="{ 'single-rules-disabled': deviceGroupMode }"
         row-key="id"
         @selection-change="handleSelectionChange"
       >
@@ -67,6 +76,7 @@
           <template #default="{ row }">
             <el-switch
               :model-value="row.enabled"
+              :disabled="deviceGroupMode"
               inline-prompt
               active-text="开"
               inactive-text="关"
@@ -92,8 +102,8 @@
         </el-table-column>
         <el-table-column label="操作" width="150" fixed="right">
           <template #default="{ row }">
-            <el-button type="primary" link @click="openEditDialog(row)">编辑</el-button>
-            <el-button type="danger" link @click="deleteRule(row)">删除</el-button>
+            <el-button type="primary" link :disabled="deviceGroupMode" @click="openEditDialog(row)">编辑</el-button>
+            <el-button type="danger" link :disabled="deviceGroupMode" @click="deleteRule(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -169,10 +179,12 @@ import { ElMessage, ElMessageBox } from 'element-plus';
 import RuleFormDialog from '../components/RuleFormDialog.vue';
 import { useMachineStore } from '../stores/machine';
 import { useRuleStore } from '../stores/rule';
+import { useGroupRuleStore } from '../stores/groupRule';
 import { formatBytes, protocolLabel } from '../utils/format';
 
 const machineStore = useMachineStore();
 const ruleStore = useRuleStore();
+const groupRuleStore = useGroupRuleStore();
 
 const keyword = ref('');
 const initialLoading = ref(false);
@@ -196,6 +208,8 @@ const importDefaults = ref({
 });
 let timer;
 let loadingPromise = null;
+
+const deviceGroupMode = computed(() => groupRuleStore.modeEnabled);
 
 const filteredRules = computed(() => {
   const q = keyword.value.trim().toLowerCase();
@@ -229,6 +243,10 @@ function buildRoutePath(rule) {
   return `${ingressName}:${rule.ingress_port} → ${egressName} → ${rule.target_addr}:${rule.target_port}`;
 }
 
+function ruleRowClassName() {
+  return deviceGroupMode.value ? 'disabled-rule-row' : '';
+}
+
 async function loadData(options = {}) {
   if (loadingPromise) {
     if (options.manual) {
@@ -250,6 +268,7 @@ async function loadData(options = {}) {
   loadingPromise = Promise.all([
     machineStore.fetchMachines(),
     ruleStore.fetchRules({ includeDayTotals: true }),
+    groupRuleStore.fetchMode(),
   ]);
 
   try {
@@ -266,7 +285,16 @@ function manualRefresh() {
   return loadData({ manual: true });
 }
 
+function ensureSingleRulesActive() {
+  if (!deviceGroupMode.value) {
+    return true;
+  }
+  ElMessage.warning('?????????????????????');
+  return false;
+}
+
 function openCreateDialog() {
+  if (!ensureSingleRulesActive()) return;
   editingRule.value = null;
   dialogVisible.value = true;
 }
@@ -276,11 +304,13 @@ function handleSelectionChange(rows) {
 }
 
 function openEditDialog(rule) {
+  if (!ensureSingleRulesActive()) return;
   editingRule.value = { ...rule };
   dialogVisible.value = true;
 }
 
 async function submitRule(form) {
+  if (!ensureSingleRulesActive()) return;
   submitting.value = true;
   try {
     const payload = {
@@ -307,6 +337,7 @@ async function submitRule(form) {
 }
 
 function openImportDialog() {
+  if (!ensureSingleRulesActive()) return;
   if (!importDefaults.value.ingress_machine_id && machineStore.onlineIngressMachines.length === 1) {
     importDefaults.value.ingress_machine_id = machineStore.onlineIngressMachines[0].id;
   }
@@ -532,12 +563,14 @@ function downloadExport() {
 }
 
 async function toggleRule(rule) {
+  if (!ensureSingleRulesActive()) return;
   await ruleStore.toggleRule(rule.id);
   ElMessage.success(`规则已${rule.enabled ? '禁用' : '启用'}`);
   await loadData();
 }
 
 async function deleteRule(rule) {
+  if (!ensureSingleRulesActive()) return;
   await ElMessageBox.confirm(`确定删除规则“${rule.name}”吗？`, '删除确认', {
     type: 'warning',
     confirmButtonText: '删除',
@@ -550,6 +583,7 @@ async function deleteRule(rule) {
 }
 
 async function batchDeleteRules() {
+  if (!ensureSingleRulesActive()) return;
   const rules = [...selectedRules.value];
   if (rules.length === 0) {
     ElMessage.warning('请先选择要删除的规则');
@@ -619,6 +653,49 @@ onBeforeUnmount(() => {
 .rules-toolbar {
   width: 100%;
   justify-content: flex-end;
+}
+
+.disabled-mode-banner {
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(100, 116, 139, 0.18);
+  background:
+    linear-gradient(135deg, rgba(248, 250, 252, 0.95), rgba(226, 232, 240, 0.72)),
+    repeating-linear-gradient(135deg, rgba(148, 163, 184, 0.13) 0 8px, transparent 8px 16px);
+  color: #475569;
+}
+
+.disabled-mode-banner div {
+  display: grid;
+  gap: 5px;
+}
+
+.disabled-mode-banner strong {
+  color: #334155;
+  font-size: 15px;
+}
+
+.disabled-mode-banner span {
+  color: #64748b;
+  font-size: 13px;
+}
+
+.single-rules-disabled {
+  filter: grayscale(0.9);
+}
+
+:deep(.disabled-rule-row) {
+  opacity: 0.48;
+  background:
+    linear-gradient(90deg, rgba(248, 250, 252, 0.94), rgba(241, 245, 249, 0.9)) !important;
+}
+
+:deep(.disabled-rule-row .rule-link),
+:deep(.disabled-rule-row .path-line),
+:deep(.disabled-rule-row .el-tag),
+:deep(.disabled-rule-row .el-switch) {
+  color: #64748b !important;
 }
 
 .rule-link {

@@ -19,7 +19,34 @@
       </div>
     </el-card>
 
-    <el-card class="panel-card" shadow="never">
+    <el-card class="panel-card tabs-card" shadow="never">
+      <div class="tabs-card-inner">
+        <div class="tabs-title">
+          <h3 class="section-title">设备组规则</h3>
+          <p class="section-meta">
+            {{ groupStore.rules.length }} 条规则 · {{ groupStore.ingressGroups.length }} 个入口组 ·
+            {{ groupStore.egressGroups.length }} 个出口组
+          </p>
+        </div>
+        <div class="tabs-actions">
+          <el-radio-group v-model="activeTab" class="page-tabs">
+            <el-radio-button label="rules">规则</el-radio-button>
+            <el-radio-button label="groups">分组</el-radio-button>
+          </el-radio-group>
+          <el-input v-model="keyword" class="search-input" clearable placeholder="搜索规则、分组、目标地址" />
+          <el-button :loading="manualRefreshing || groupStore.refreshing" round @click="manualRefresh">
+            立即刷新
+          </el-button>
+          <template v-if="activeTab === 'groups'">
+            <el-button round :disabled="modeDisabled" @click="openGroupDialog('ingress')">新增入口组</el-button>
+            <el-button round :disabled="modeDisabled" @click="openGroupDialog('egress')">新增出口组</el-button>
+          </template>
+          <el-button v-else type="primary" :disabled="modeDisabled" @click="openRuleDialog()">新增组规则</el-button>
+        </div>
+      </div>
+    </el-card>
+
+    <el-card v-show="activeTab === 'groups'" class="panel-card" shadow="never">
       <template #header>
         <div class="page-header group-header">
           <div>
@@ -86,7 +113,7 @@
       </div>
     </el-card>
 
-    <el-card class="panel-card rule-card" shadow="never">
+    <el-card v-show="activeTab === 'rules'" class="panel-card rule-card" shadow="never">
       <template #header>
         <div class="table-card-header">
           <div>
@@ -266,6 +293,7 @@ const groupStore = useGroupRuleStore();
 const machineStore = useMachineStore();
 
 const keyword = ref('');
+const activeTab = ref('rules');
 const initialLoading = ref(false);
 const manualRefreshing = ref(false);
 const submitting = ref(false);
@@ -538,9 +566,49 @@ onBeforeUnmount(() => {
   line-height: 1.7;
 }
 
+.tabs-card {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+
+.tabs-card-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.tabs-title {
+  min-width: 220px;
+}
+
+.tabs-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  flex: 1;
+  flex-wrap: wrap;
+}
+
+.page-tabs {
+  --el-border-radius-base: 999px;
+}
+
+.page-tabs :deep(.el-radio-button__inner) {
+  min-width: 74px;
+  border-radius: 999px;
+  font-weight: 700;
+}
+
 .group-header {
   display: grid;
   gap: 18px;
+}
+
+.group-header .toolbar {
+  display: none;
 }
 
 .toolbar {
@@ -681,6 +749,15 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 1080px) {
+  .tabs-card-inner {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .tabs-actions {
+    justify-content: flex-start;
+  }
+
   .group-grid,
   .form-grid,
   .member-list {

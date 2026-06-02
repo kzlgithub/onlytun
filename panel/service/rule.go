@@ -194,6 +194,21 @@ func (s *RuleService) EnabledRulesForMachine(machine *paneldb.Machine) ([]AgentR
 		return nil, ErrMachineNotFound
 	}
 
+	deviceGroupMode, err := s.deviceGroupModeEnabled()
+	if err != nil {
+		return nil, err
+	}
+	if deviceGroupMode {
+		configs, err := s.enabledDeviceGroupRulesForMachine(machine)
+		if err != nil {
+			return nil, err
+		}
+		sort.Slice(configs, func(i, j int) bool {
+			return configs[i].RuleID < configs[j].RuleID
+		})
+		return configs, nil
+	}
+
 	var rules []paneldb.ForwardRule
 	if err := s.db.
 		Where("enabled = ? AND (ingress_machine_id = ? OR egress_machine_id = ?)", true, machine.ID, machine.ID).
@@ -229,16 +244,14 @@ func (s *RuleService) EnabledRulesForMachine(machine *paneldb.Machine) ([]AgentR
 		})
 	}
 
-	groupConfigs, err := s.enabledDeviceGroupRulesForMachine(machine)
-	if err != nil {
-		return nil, err
-	}
-	configs = append(configs, groupConfigs...)
-
 	sort.Slice(configs, func(i, j int) bool {
 		return configs[i].RuleID < configs[j].RuleID
 	})
 	return configs, nil
+}
+
+func (s *RuleService) deviceGroupModeEnabled() (bool, error) {
+	return NewSettingsService(s.db).DeviceGroupModeEnabled()
 }
 
 func (s *RuleService) enabledDeviceGroupRulesForMachine(machine *paneldb.Machine) ([]AgentRuleConfig, error) {

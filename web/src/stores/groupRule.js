@@ -17,6 +17,7 @@ export const useGroupRuleStore = defineStore('groupRules', {
   state: () => ({
     groups: [],
     rules: [],
+    modeEnabled: false,
     loading: false,
     refreshing: false,
   }),
@@ -56,16 +57,28 @@ export const useGroupRuleStore = defineStore('groupRules', {
       if (options.initial) this.loading = true;
       else this.refreshing = true;
       try {
-        const [groupsResp, rulesResp] = await Promise.all([
+        const [modeResp, groupsResp, rulesResp] = await Promise.all([
+          machineGroupApi.mode(),
           machineGroupApi.list(),
           groupRuleApi.list(),
         ]);
+        this.modeEnabled = Boolean(modeResp.data.enabled);
         this.groups = mergeById(this.groups, groupsResp.data.groups || []);
         this.rules = mergeById(this.rules, rulesResp.data.rules || []);
       } finally {
         this.loading = false;
         this.refreshing = false;
       }
+    },
+    async fetchMode() {
+      const { data } = await machineGroupApi.mode();
+      this.modeEnabled = Boolean(data.enabled);
+      return this.modeEnabled;
+    },
+    async setMode(enabled) {
+      const { data } = await machineGroupApi.setMode(enabled);
+      this.modeEnabled = Boolean(data.enabled);
+      return this.modeEnabled;
     },
     async createGroup(payload) {
       await machineGroupApi.create(payload);

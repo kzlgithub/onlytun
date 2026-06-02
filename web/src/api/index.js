@@ -106,6 +106,12 @@ export const ruleApi = {
 };
 
 export const machineGroupApi = {
+  mode() {
+    return api.get('/api/device-group-mode');
+  },
+  setMode(enabled) {
+    return api.patch('/api/device-group-mode', { enabled });
+  },
   list(params = {}) {
     return api.get('/api/machine-groups', { params });
   },

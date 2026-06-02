@@ -6,6 +6,7 @@ import (
 	"time"
 
 	paneldb "github.com/onlytun/panel/db"
+	"gorm.io/gorm"
 )
 
 func TestEnabledRulesForMachineExpandsDeviceGroupRule(t *testing.T) {
@@ -35,6 +36,7 @@ func TestEnabledRulesForMachineExpandsDeviceGroupRule(t *testing.T) {
 			t.Fatalf("create record: %v", err)
 		}
 	}
+	enableDeviceGroupMode(t, gdb)
 
 	configs, err := NewRuleService(gdb, 19999).EnabledRulesForMachine(&ingress)
 	if err != nil {
@@ -86,13 +88,111 @@ func TestDeviceGroupRuleSkipsIngressWhenSingleRuleOwnsPort(t *testing.T) {
 			t.Fatalf("create record: %v", err)
 		}
 	}
+	enableDeviceGroupMode(t, gdb)
+
+	configs, err := NewRuleService(gdb, 19999).EnabledRulesForMachine(&ingress)
+	if err != nil {
+		t.Fatalf("enabled rules: %v", err)
+	}
+	if len(configs) != 0 {
+		t.Fatalf("expected group rule skipped because single rule owns port, got %+v", configs)
+	}
+}
+
+func TestDeviceGroupModeDisabledUsesOnlySingleRules(t *testing.T) {
+	gdb, err := paneldb.OpenDatabase(filepath.Join(t.TempDir(), "panel.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+
+	ingressGroup := paneldb.MachineGroup{ID: "ingress-group", Name: "Ingress Group", Role: "ingress"}
+	egressGroup := paneldb.MachineGroup{ID: "egress-group", Name: "Egress Group", Role: "egress"}
+	ingress := paneldb.Machine{ID: "ingress-1", Name: "Ingress", Role: "ingress", GroupID: ingressGroup.ID, Token: "token-ingress"}
+	egress := paneldb.Machine{ID: "egress-1", Name: "Egress", Role: "egress", GroupID: egressGroup.ID, Token: "token-egress", IP: "127.0.0.1", Online: true}
+	single := paneldb.ForwardRule{
+		ID:               "single-rule",
+		Name:             "Single Rule",
+		IngressMachineID: ingress.ID,
+		IngressPort:      41001,
+		EgressMachineID:  egress.ID,
+		TargetAddr:       "example.org",
+		TargetPort:       443,
+		Protocol:         "tcp",
+		Enabled:          true,
+	}
+	groupRule := paneldb.DeviceGroupRule{
+		ID:             "group-rule",
+		Name:           "Group Rule",
+		IngressGroupID: ingressGroup.ID,
+		EgressGroupID:  egressGroup.ID,
+		IngressPort:    41002,
+		TargetAddr:     "example.com",
+		TargetPort:     443,
+		Protocol:       "tcp",
+		Enabled:        true,
+	}
+
+	for _, record := range []any{&ingressGroup, &egressGroup, &ingress, &egress, &single, &groupRule} {
+		if err := gdb.Create(record).Error; err != nil {
+			t.Fatalf("create record: %v", err)
+		}
+	}
 
 	configs, err := NewRuleService(gdb, 19999).EnabledRulesForMachine(&ingress)
 	if err != nil {
 		t.Fatalf("enabled rules: %v", err)
 	}
 	if len(configs) != 1 || configs[0].RuleID != single.ID {
-		t.Fatalf("expected only single rule config, got %+v", configs)
+		t.Fatalf("expected only single rule when device group mode is off, got %+v", configs)
+	}
+}
+
+func TestDeviceGroupModeEnabledSuppressesSingleRules(t *testing.T) {
+	gdb, err := paneldb.OpenDatabase(filepath.Join(t.TempDir(), "panel.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+
+	ingressGroup := paneldb.MachineGroup{ID: "ingress-group", Name: "Ingress Group", Role: "ingress"}
+	egressGroup := paneldb.MachineGroup{ID: "egress-group", Name: "Egress Group", Role: "egress"}
+	ingress := paneldb.Machine{ID: "ingress-1", Name: "Ingress", Role: "ingress", GroupID: ingressGroup.ID, Token: "token-ingress"}
+	egress := paneldb.Machine{ID: "egress-1", Name: "Egress", Role: "egress", GroupID: egressGroup.ID, Token: "token-egress", IP: "127.0.0.1", Online: true}
+	single := paneldb.ForwardRule{
+		ID:               "single-rule",
+		Name:             "Single Rule",
+		IngressMachineID: ingress.ID,
+		IngressPort:      41001,
+		EgressMachineID:  egress.ID,
+		TargetAddr:       "example.org",
+		TargetPort:       443,
+		Protocol:         "tcp",
+		Enabled:          true,
+	}
+	groupRule := paneldb.DeviceGroupRule{
+		ID:             "group-rule",
+		Name:           "Group Rule",
+		IngressGroupID: ingressGroup.ID,
+		EgressGroupID:  egressGroup.ID,
+		IngressPort:    41002,
+		TargetAddr:     "example.com",
+		TargetPort:     443,
+		Protocol:       "tcp",
+		Enabled:        true,
+	}
+
+	for _, record := range []any{&ingressGroup, &egressGroup, &ingress, &egress, &single, &groupRule} {
+		if err := gdb.Create(record).Error; err != nil {
+			t.Fatalf("create record: %v", err)
+		}
+	}
+	enableDeviceGroupMode(t, gdb)
+
+	configs, err := NewRuleService(gdb, 19999).EnabledRulesForMachine(&ingress)
+	if err != nil {
+		t.Fatalf("enabled rules: %v", err)
+	}
+	if len(configs) != 1 || configs[0].RuleID != groupRule.ID {
+		t.Fatalf("expected only group rule when device group mode is on, got %+v", configs)
 	}
 }
 
@@ -141,5 +241,12 @@ func TestStatsAuthorizesDeviceGroupRuleByMachineGroup(t *testing.T) {
 	}
 	if stat.BytesUp != 10 || stat.BytesDown != 20 || stat.PeakConns != 2 {
 		t.Fatalf("unexpected stat: %+v", stat)
+	}
+}
+
+func enableDeviceGroupMode(t *testing.T, gdb *gorm.DB) {
+	t.Helper()
+	if err := gdb.Create(&paneldb.SystemSetting{Key: DeviceGroupModeSettingKey, Value: "true"}).Error; err != nil {
+		t.Fatalf("enable device group mode: %v", err)
 	}
 }

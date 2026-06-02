@@ -90,6 +90,8 @@ func main() {
 	admin.PUT("/rules/:id", handler.UpdateRule)
 	admin.DELETE("/rules/:id", handler.DeleteRule)
 	admin.PATCH("/rules/:id/toggle", handler.ToggleRule)
+	admin.GET("/device-group-mode", handler.GetDeviceGroupMode)
+	admin.PATCH("/device-group-mode", handler.SetDeviceGroupMode)
 	admin.GET("/machine-groups", handler.ListMachineGroups)
 	admin.POST("/machine-groups", handler.CreateMachineGroup)
 	admin.PUT("/machine-groups/:id", handler.UpdateMachineGroup)
@@ -148,7 +150,7 @@ func main() {
 func skipAccessLog(c *gin.Context) bool {
 	if c.Request.Method == http.MethodGet {
 		switch c.Request.URL.Path {
-		case "/api/machines", "/api/rules", "/api/machine-groups", "/api/group-rules", "/api/panel/metrics", "/api/panel/version":
+		case "/api/machines", "/api/rules", "/api/device-group-mode", "/api/machine-groups", "/api/group-rules", "/api/panel/metrics", "/api/panel/version":
 			return true
 		default:
 			if strings.HasPrefix(c.Request.URL.Path, "/api/stats/") {

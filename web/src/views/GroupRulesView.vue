@@ -1,5 +1,24 @@
 <template>
   <div class="page-shell group-rules-page">
+    <el-card class="panel-card mode-card" shadow="never">
+      <div class="mode-card-inner">
+        <div>
+          <h3>设备组规则模式</h3>
+          <p>
+            关闭时使用单条转发规则；开启后全体单条转发规则在运行层面失效，只下发设备组规则。
+          </p>
+        </div>
+        <el-switch
+          :model-value="groupStore.modeEnabled"
+          :loading="modeSaving"
+          inline-prompt
+          active-text="已开启"
+          inactive-text="已关闭"
+          @change="toggleMode"
+        />
+      </div>
+    </el-card>
+
     <el-card class="panel-card" shadow="never">
       <template #header>
         <div class="page-header group-header">
@@ -15,9 +34,9 @@
             <el-button :loading="manualRefreshing || groupStore.refreshing" round @click="manualRefresh">
               立即刷新
             </el-button>
-            <el-button round @click="openGroupDialog('ingress')">新增入口组</el-button>
-            <el-button round @click="openGroupDialog('egress')">新增出口组</el-button>
-            <el-button type="primary" @click="openRuleDialog()">新增组规则</el-button>
+            <el-button round :disabled="modeDisabled" @click="openGroupDialog('ingress')">新增入口组</el-button>
+            <el-button round :disabled="modeDisabled" @click="openGroupDialog('egress')">新增出口组</el-button>
+            <el-button type="primary" :disabled="modeDisabled" @click="openRuleDialog()">新增组规则</el-button>
           </div>
         </div>
       </template>
@@ -35,9 +54,9 @@
                 <p>{{ group.machine_count || 0 }} 台入口机</p>
               </div>
               <div class="group-actions">
-                <el-button link type="primary" @click="openMembersDialog(group)">成员</el-button>
-                <el-button link type="primary" @click="openGroupDialog(group.role, group)">编辑</el-button>
-                <el-button link type="danger" @click="deleteGroup(group)">删除</el-button>
+                <el-button link type="primary" :disabled="modeDisabled" @click="openMembersDialog(group)">成员</el-button>
+                <el-button link type="primary" :disabled="modeDisabled" @click="openGroupDialog(group.role, group)">编辑</el-button>
+                <el-button link type="danger" :disabled="modeDisabled" @click="deleteGroup(group)">删除</el-button>
               </div>
             </div>
             <el-empty v-if="filteredIngressGroups.length === 0" description="暂无入口组" />
@@ -56,9 +75,9 @@
                 <p>{{ group.machine_count || 0 }} 台出口机</p>
               </div>
               <div class="group-actions">
-                <el-button link type="primary" @click="openMembersDialog(group)">成员</el-button>
-                <el-button link type="primary" @click="openGroupDialog(group.role, group)">编辑</el-button>
-                <el-button link type="danger" @click="deleteGroup(group)">删除</el-button>
+                <el-button link type="primary" :disabled="modeDisabled" @click="openMembersDialog(group)">成员</el-button>
+                <el-button link type="primary" :disabled="modeDisabled" @click="openGroupDialog(group.role, group)">编辑</el-button>
+                <el-button link type="danger" :disabled="modeDisabled" @click="deleteGroup(group)">删除</el-button>
               </div>
             </div>
             <el-empty v-if="filteredEgressGroups.length === 0" description="暂无出口组" />
@@ -103,6 +122,7 @@
           <template #default="{ row }">
             <el-switch
               :model-value="row.enabled"
+              :disabled="modeDisabled"
               inline-prompt
               active-text="开"
               inactive-text="关"
@@ -140,8 +160,8 @@
         </el-table-column>
         <el-table-column label="操作" width="140" fixed="right">
           <template #default="{ row }">
-            <el-button type="primary" link @click="openRuleDialog(row)">编辑</el-button>
-            <el-button type="danger" link @click="deleteRule(row)">删除</el-button>
+            <el-button type="primary" link :disabled="modeDisabled" @click="openRuleDialog(row)">编辑</el-button>
+            <el-button type="danger" link :disabled="modeDisabled" @click="deleteRule(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -249,6 +269,7 @@ const keyword = ref('');
 const initialLoading = ref(false);
 const manualRefreshing = ref(false);
 const submitting = ref(false);
+const modeSaving = ref(false);
 const groupFormRef = ref(null);
 const ruleFormRef = ref(null);
 const memberSelection = ref([]);
@@ -273,6 +294,8 @@ const ruleForm = reactive({
 });
 
 let timer;
+
+const modeDisabled = computed(() => !groupStore.modeEnabled);
 
 const groupRules = {
   name: [{ required: true, message: '请输入组名称', trigger: 'blur' }],
@@ -337,7 +360,26 @@ async function manualRefresh() {
   await loadData();
 }
 
+async function toggleMode(enabled) {
+  modeSaving.value = true;
+  try {
+    await ElMessageBox.confirm(
+      enabled
+        ? '开启后，全体单条转发规则会在运行层面失效，入口机只会下发设备组规则。确定开启吗？'
+        : '关闭后，设备组规则会停止下发，入口机恢复使用单条转发规则。确定关闭吗？',
+      enabled ? '开启设备组规则模式' : '关闭设备组规则模式',
+      { type: enabled ? 'warning' : 'info' },
+    );
+    await groupStore.setMode(enabled);
+    ElMessage.success(enabled ? '设备组规则模式已开启，单条转发规则将停止下发' : '设备组规则模式已关闭，恢复单条转发规则下发');
+    await loadData();
+  } finally {
+    modeSaving.value = false;
+  }
+}
+
 function openGroupDialog(role, group = null) {
+  if (!ensureModeEnabled()) return;
   groupDialog.visible = true;
   groupDialog.id = group?.id || '';
   groupDialog.role = group?.role || role;
@@ -361,6 +403,7 @@ async function submitGroup() {
 }
 
 function openMembersDialog(group) {
+  if (!ensureModeEnabled()) return;
   membersDialog.visible = true;
   membersDialog.group = group;
   memberSelection.value = machineStore.machines
@@ -381,12 +424,14 @@ async function submitMembers() {
 }
 
 async function deleteGroup(group) {
+  if (!ensureModeEnabled()) return;
   await ElMessageBox.confirm(`确定删除设备组「${group.name}」吗？`, '删除设备组', { type: 'warning' });
   await groupStore.deleteGroup(group.id);
   ElMessage.success('设备组已删除');
 }
 
 function openRuleDialog(rule = null) {
+  if (!ensureModeEnabled()) return;
   ruleDialog.visible = true;
   ruleDialog.id = rule?.id || '';
   Object.assign(ruleForm, {
@@ -427,6 +472,10 @@ async function submitRule() {
 }
 
 async function toggleRule(rule) {
+  if (!ensureModeEnabled()) {
+    rule.enabled = !rule.enabled;
+    return;
+  }
   try {
     await groupStore.toggleRule(rule.id);
     await groupStore.fetchRules();
@@ -436,9 +485,18 @@ async function toggleRule(rule) {
 }
 
 async function deleteRule(rule) {
+  if (!ensureModeEnabled()) return;
   await ElMessageBox.confirm(`确定删除组规则「${rule.name}」吗？`, '删除规则', { type: 'warning' });
   await groupStore.deleteRule(rule.id);
   ElMessage.success('设备组规则已删除');
+}
+
+function ensureModeEnabled() {
+  if (groupStore.modeEnabled) {
+    return true;
+  }
+  ElMessage.warning('请先开启设备组规则模式');
+  return false;
 }
 
 onMounted(async () => {
@@ -455,6 +513,29 @@ onBeforeUnmount(() => {
 .group-rules-page {
   display: grid;
   gap: 22px;
+}
+
+.mode-card {
+  overflow: hidden;
+}
+
+.mode-card-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.mode-card h3 {
+  margin: 0 0 8px;
+  color: #132238;
+  font-size: 20px;
+}
+
+.mode-card p {
+  margin: 0;
+  color: #64748b;
+  line-height: 1.7;
 }
 
 .group-header {

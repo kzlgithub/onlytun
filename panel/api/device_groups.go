@@ -15,6 +15,32 @@ type deviceGroupRuleCreateResponse struct {
 	ConflictRule *paneldb.DeviceGroupRule `json:"conflict_rule,omitempty"`
 }
 
+type deviceGroupModeRequest struct {
+	Enabled bool `json:"enabled"`
+}
+
+func (h *Handler) GetDeviceGroupMode(c *gin.Context) {
+	enabled, err := h.Settings.DeviceGroupModeEnabled()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"enabled": enabled})
+}
+
+func (h *Handler) SetDeviceGroupMode(c *gin.Context) {
+	var req deviceGroupModeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		return
+	}
+	if err := h.Settings.SetDeviceGroupModeEnabled(req.Enabled); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"enabled": req.Enabled})
+}
+
 func (h *Handler) ListMachineGroups(c *gin.Context) {
 	groups, err := h.Groups.ListGroups(c.Query("role"))
 	if err != nil {
@@ -25,6 +51,9 @@ func (h *Handler) ListMachineGroups(c *gin.Context) {
 }
 
 func (h *Handler) CreateMachineGroup(c *gin.Context) {
+	if !h.requireDeviceGroupMode(c) {
+		return
+	}
 	var input service.MachineGroupInput
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
@@ -39,6 +68,9 @@ func (h *Handler) CreateMachineGroup(c *gin.Context) {
 }
 
 func (h *Handler) UpdateMachineGroup(c *gin.Context) {
+	if !h.requireDeviceGroupMode(c) {
+		return
+	}
 	var input service.MachineGroupInput
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
@@ -53,6 +85,9 @@ func (h *Handler) UpdateMachineGroup(c *gin.Context) {
 }
 
 func (h *Handler) DeleteMachineGroup(c *gin.Context) {
+	if !h.requireDeviceGroupMode(c) {
+		return
+	}
 	if err := h.Groups.DeleteGroup(c.Param("id")); err != nil {
 		writeGroupError(c, err)
 		return
@@ -61,6 +96,9 @@ func (h *Handler) DeleteMachineGroup(c *gin.Context) {
 }
 
 func (h *Handler) SetMachineGroupMembers(c *gin.Context) {
+	if !h.requireDeviceGroupMode(c) {
+		return
+	}
 	var input service.GroupMembersInput
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
@@ -109,6 +147,9 @@ func (h *Handler) ListDeviceGroupRules(c *gin.Context) {
 }
 
 func (h *Handler) CreateDeviceGroupRule(c *gin.Context) {
+	if !h.requireDeviceGroupMode(c) {
+		return
+	}
 	var input service.DeviceGroupRuleInput
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
@@ -126,6 +167,9 @@ func (h *Handler) CreateDeviceGroupRule(c *gin.Context) {
 }
 
 func (h *Handler) UpdateDeviceGroupRule(c *gin.Context) {
+	if !h.requireDeviceGroupMode(c) {
+		return
+	}
 	var input service.DeviceGroupRuleInput
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
@@ -140,6 +184,9 @@ func (h *Handler) UpdateDeviceGroupRule(c *gin.Context) {
 }
 
 func (h *Handler) DeleteDeviceGroupRule(c *gin.Context) {
+	if !h.requireDeviceGroupMode(c) {
+		return
+	}
 	if err := h.Groups.DeleteDeviceGroupRule(c.Param("id")); err != nil {
 		writeGroupError(c, err)
 		return
@@ -148,12 +195,28 @@ func (h *Handler) DeleteDeviceGroupRule(c *gin.Context) {
 }
 
 func (h *Handler) ToggleDeviceGroupRule(c *gin.Context) {
+	if !h.requireDeviceGroupMode(c) {
+		return
+	}
 	rule, err := h.Groups.ToggleDeviceGroupRule(c.Param("id"))
 	if err != nil {
 		writeGroupError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, rule)
+}
+
+func (h *Handler) requireDeviceGroupMode(c *gin.Context) bool {
+	enabled, err := h.Settings.DeviceGroupModeEnabled()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return false
+	}
+	if !enabled {
+		c.JSON(http.StatusConflict, gin.H{"error": service.ErrDeviceGroupModeOff.Error()})
+		return false
+	}
+	return true
 }
 
 func writeGroupError(c *gin.Context, err error) {
@@ -179,7 +242,8 @@ func groupErrorStatus(err error) int {
 		errors.Is(err, service.ErrGroupNameRequired):
 		return http.StatusBadRequest
 	case errors.Is(err, service.ErrGroupHasRules),
-		errors.Is(err, service.ErrGroupRulePortConflict):
+		errors.Is(err, service.ErrGroupRulePortConflict),
+		errors.Is(err, service.ErrDeviceGroupModeOff):
 		return http.StatusConflict
 	default:
 		return http.StatusInternalServerError

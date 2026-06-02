@@ -17,6 +17,7 @@ var (
 	ErrGroupHasRules         = errors.New("service: machine group has rules")
 	ErrGroupRuleNotFound     = errors.New("service: device group rule not found")
 	ErrGroupRulePortConflict = errors.New("service: device group rule port conflict")
+	ErrDeviceGroupModeOff    = errors.New("service: device group mode is disabled")
 )
 
 type GroupService struct {

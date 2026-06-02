@@ -254,7 +254,19 @@ func (s *GroupService) CreateDeviceGroupRule(input DeviceGroupRuleInput) (*panel
 			rule.Enabled = false
 		}
 	}
-	if err := s.db.Create(rule).Error; err != nil {
+	shouldDisable := !rule.Enabled
+	if err := s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(rule).Error; err != nil {
+			return err
+		}
+		if shouldDisable {
+			if err := tx.Model(&paneldb.DeviceGroupRule{}).Where("id = ?", rule.ID).UpdateColumn("enabled", false).Error; err != nil {
+				return err
+			}
+			rule.Enabled = false
+		}
+		return nil
+	}); err != nil {
 		return nil, nil, err
 	}
 	return rule, conflict, nil

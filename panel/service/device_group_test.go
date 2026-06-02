@@ -1,6 +1,7 @@
 package service
 
 import (
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -96,6 +97,61 @@ func TestDeviceGroupRuleSkipsIngressWhenSingleRuleOwnsPort(t *testing.T) {
 	}
 	if len(configs) != 0 {
 		t.Fatalf("expected group rule skipped because single rule owns port, got %+v", configs)
+	}
+}
+
+func TestCreateDeviceGroupRuleDisablesOverlappingIngressPort(t *testing.T) {
+	gdb, err := paneldb.OpenDatabase(filepath.Join(t.TempDir(), "panel.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+
+	ingressGroup := paneldb.MachineGroup{ID: "ingress-group", Name: "Ingress Group", Role: "ingress"}
+	egressGroup := paneldb.MachineGroup{ID: "egress-group", Name: "Egress Group", Role: "egress"}
+	for _, record := range []any{&ingressGroup, &egressGroup} {
+		if err := gdb.Create(record).Error; err != nil {
+			t.Fatalf("create record: %v", err)
+		}
+	}
+
+	svc := NewGroupService(gdb, 19999)
+	base := DeviceGroupRuleInput{
+		Name:           "Base",
+		IngressGroupID: ingressGroup.ID,
+		EgressGroupID:  egressGroup.ID,
+		IngressPort:    41001,
+		TargetAddr:     "example.com",
+		TargetPort:     443,
+		Protocol:       "tcp",
+		Enabled:        true,
+	}
+	if _, _, err := svc.CreateDeviceGroupRule(base); err != nil {
+		t.Fatalf("create base rule: %v", err)
+	}
+
+	conflict := base
+	conflict.Name = "Conflict"
+	conflictRule, occupiedBy, err := svc.CreateDeviceGroupRule(conflict)
+	if err != nil {
+		t.Fatalf("create conflicting rule: %v", err)
+	}
+	if occupiedBy == nil || occupiedBy.Name != "Base" {
+		t.Fatalf("expected conflict with base rule, got %+v", occupiedBy)
+	}
+	if conflictRule.Enabled {
+		t.Fatalf("expected conflicting rule disabled in response, got %+v", conflictRule)
+	}
+
+	saved, err := svc.GetDeviceGroupRule(conflictRule.ID)
+	if err != nil {
+		t.Fatalf("load saved conflicting rule: %v", err)
+	}
+	if saved.Enabled {
+		t.Fatalf("expected conflicting rule disabled in database, got %+v", saved)
+	}
+
+	if _, err := svc.ToggleDeviceGroupRule(saved.ID); !errors.Is(err, ErrGroupRulePortConflict) {
+		t.Fatalf("expected toggle conflict error, got %v", err)
 	}
 }
 

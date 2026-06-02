@@ -3,6 +3,7 @@ package service
 import (
 	"errors"
 	"sort"
+	"strings"
 	"time"
 
 	paneldb "github.com/onlytun/panel/db"
@@ -51,7 +52,7 @@ func (s *StatsService) IngestStats(machine *paneldb.Machine, input AgentStatsInp
 	}
 
 	hour := time.Now().UTC().Truncate(time.Hour)
-	rules, err := s.authorizedRulesByID(machine, input.Stats)
+	rules, err := s.authorizedRuleIDs(machine, input.Stats)
 	if err != nil {
 		return err
 	}
@@ -83,8 +84,8 @@ func (s *StatsService) IngestStats(machine *paneldb.Machine, input AgentStatsInp
 	return nil
 }
 
-func (s *StatsService) authorizedRulesByID(machine *paneldb.Machine, items []AgentStatItem) (map[string]paneldb.ForwardRule, error) {
-	rulesByID := make(map[string]paneldb.ForwardRule)
+func (s *StatsService) authorizedRuleIDs(machine *paneldb.Machine, items []AgentStatItem) (map[string]struct{}, error) {
+	rulesByID := make(map[string]struct{})
 	if len(items) == 0 {
 		return rulesByID, nil
 	}
@@ -112,7 +113,19 @@ func (s *StatsService) authorizedRulesByID(machine *paneldb.Machine, items []Age
 
 	for _, rule := range rules {
 		if rule.IngressMachineID == machine.ID || rule.EgressMachineID == machine.ID {
-			rulesByID[rule.ID] = rule
+			rulesByID[rule.ID] = struct{}{}
+		}
+	}
+
+	if strings.TrimSpace(machine.GroupID) != "" {
+		var groupRules []paneldb.DeviceGroupRule
+		if err := s.db.Where("id IN ?", ids).Find(&groupRules).Error; err != nil {
+			return nil, err
+		}
+		for _, rule := range groupRules {
+			if rule.IngressGroupID == machine.GroupID || rule.EgressGroupID == machine.GroupID {
+				rulesByID[rule.ID] = struct{}{}
+			}
 		}
 	}
 	return rulesByID, nil

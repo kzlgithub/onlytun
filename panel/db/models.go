@@ -19,6 +19,7 @@ type Machine struct {
 	ID            string    `gorm:"primaryKey;size:36" json:"id"`
 	Name          string    `gorm:"size:128;not null" json:"name"`
 	Role          string    `gorm:"size:16;not null;index" json:"role"`
+	GroupID       string    `gorm:"size:36;index" json:"group_id"`
 	IP            string    `gorm:"size:64" json:"ip"`
 	Token         string    `gorm:"size:128;not null;uniqueIndex" json:"token"`
 	Online        bool      `gorm:"not null;default:false" json:"online"`
@@ -36,12 +37,37 @@ type Machine struct {
 	UpdatedAt     time.Time `json:"updated_at"`
 }
 
+type MachineGroup struct {
+	ID        string    `gorm:"primaryKey;size:36" json:"id"`
+	Name      string    `gorm:"size:128;not null" json:"name"`
+	Role      string    `gorm:"size:16;not null;index" json:"role"`
+	Remark    string    `gorm:"type:text" json:"remark"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 type ForwardRule struct {
 	ID                string    `gorm:"primaryKey;size:36" json:"id"`
 	Name              string    `gorm:"size:128;not null" json:"name"`
 	IngressMachineID  string    `gorm:"size:36;not null;index" json:"ingress_machine_id"`
 	IngressPort       int       `gorm:"not null" json:"ingress_port"`
 	EgressMachineID   string    `gorm:"size:36;not null;index" json:"egress_machine_id"`
+	TargetAddr        string    `gorm:"size:255;not null" json:"target_addr"`
+	TargetPort        int       `gorm:"not null" json:"target_port"`
+	Protocol          string    `gorm:"size:16;not null" json:"protocol"`
+	Enabled           bool      `gorm:"not null;default:true;index" json:"enabled"`
+	TrafficLimitBytes int64     `gorm:"not null;default:0" json:"traffic_limit_bytes"`
+	Remark            string    `gorm:"type:text" json:"remark"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
+}
+
+type DeviceGroupRule struct {
+	ID                string    `gorm:"primaryKey;size:36" json:"id"`
+	Name              string    `gorm:"size:128;not null" json:"name"`
+	IngressGroupID    string    `gorm:"size:36;not null;index" json:"ingress_group_id"`
+	EgressGroupID     string    `gorm:"size:36;not null;index" json:"egress_group_id"`
+	IngressPort       int       `gorm:"not null" json:"ingress_port"`
 	TargetAddr        string    `gorm:"size:255;not null" json:"target_addr"`
 	TargetPort        int       `gorm:"not null" json:"target_port"`
 	Protocol          string    `gorm:"size:16;not null" json:"protocol"`
@@ -104,6 +130,20 @@ func (r *ForwardRule) BeforeCreate(tx *gorm.DB) error {
 	return nil
 }
 
+func (g *MachineGroup) BeforeCreate(tx *gorm.DB) error {
+	if g.ID == "" {
+		g.ID = uuid.NewString()
+	}
+	return nil
+}
+
+func (r *DeviceGroupRule) BeforeCreate(tx *gorm.DB) error {
+	if r.ID == "" {
+		r.ID = uuid.NewString()
+	}
+	return nil
+}
+
 func (t *MachineUpdateTask) BeforeCreate(tx *gorm.DB) error {
 	if t.ID == "" {
 		t.ID = uuid.NewString()
@@ -141,7 +181,9 @@ func OpenDatabase(path string) (*gorm.DB, error) {
 func AutoMigrate(gdb *gorm.DB) error {
 	return gdb.AutoMigrate(
 		&Machine{},
+		&MachineGroup{},
 		&ForwardRule{},
+		&DeviceGroupRule{},
 		&TrafficStat{},
 		&InstallToken{},
 		&MachineUpdateTask{},

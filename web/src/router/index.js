@@ -41,6 +41,12 @@ const routes = [
         meta: { title: '流量详情' },
       },
       {
+        path: '/group-rules',
+        name: 'group-rules',
+        component: () => import('../views/GroupRulesView.vue'),
+        meta: { title: '\u8bbe\u5907\u7ec4\u89c4\u5219' },
+      },
+      {
         path: '/settings',
         name: 'settings',
         component: () => import('../views/SettingsView.vue'),

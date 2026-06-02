@@ -229,9 +229,58 @@ func (s *RuleService) EnabledRulesForMachine(machine *paneldb.Machine) ([]AgentR
 		})
 	}
 
+	groupConfigs, err := s.enabledDeviceGroupRulesForMachine(machine)
+	if err != nil {
+		return nil, err
+	}
+	configs = append(configs, groupConfigs...)
+
 	sort.Slice(configs, func(i, j int) bool {
 		return configs[i].RuleID < configs[j].RuleID
 	})
+	return configs, nil
+}
+
+func (s *RuleService) enabledDeviceGroupRulesForMachine(machine *paneldb.Machine) ([]AgentRuleConfig, error) {
+	if machine.Role != "ingress" || strings.TrimSpace(machine.GroupID) == "" {
+		return nil, nil
+	}
+
+	var rules []paneldb.DeviceGroupRule
+	if err := s.db.
+		Where("enabled = ? AND ingress_group_id = ?", true, machine.GroupID).
+		Find(&rules).Error; err != nil {
+		return nil, err
+	}
+
+	groups := NewGroupService(s.db, s.tunnelPort)
+	configs := make([]AgentRuleConfig, 0, len(rules))
+	for _, rule := range rules {
+		exceeded, err := s.deviceGroupRuleLimitExceeded(rule)
+		if err != nil {
+			return nil, err
+		}
+		if exceeded {
+			continue
+		}
+
+		conflict, err := s.findIngressPortConflict("", machine.ID, rule.IngressPort, rule.Protocol)
+		if err != nil {
+			return nil, err
+		}
+		if conflict != nil {
+			continue
+		}
+
+		egress, err := groups.PickEgressForRule(rule, machine.ID)
+		if err != nil {
+			if errors.Is(err, ErrMachineIPMissing) {
+				continue
+			}
+			return nil, err
+		}
+		configs = append(configs, groupRuleAgentConfig(rule, *egress, s.tunnelPort))
+	}
 	return configs, nil
 }
 
@@ -314,6 +363,17 @@ func protocolsOverlap(left, right string) bool {
 }
 
 func (s *RuleService) ruleLimitExceeded(rule paneldb.ForwardRule) (bool, error) {
+	if rule.TrafficLimitBytes <= 0 {
+		return false, nil
+	}
+	total, err := s.totalTrafficForRule(rule.ID)
+	if err != nil {
+		return false, err
+	}
+	return total >= rule.TrafficLimitBytes, nil
+}
+
+func (s *RuleService) deviceGroupRuleLimitExceeded(rule paneldb.DeviceGroupRule) (bool, error) {
 	if rule.TrafficLimitBytes <= 0 {
 		return false, nil
 	}

@@ -34,6 +34,10 @@
           <el-icon><Connection /></el-icon>
           <span>转发规则</span>
         </el-menu-item>
+        <el-menu-item index="/group-rules">
+          <el-icon><Share /></el-icon>
+          <span>&#35774;&#22791;&#32452;&#35268;&#21017;</span>
+        </el-menu-item>
         <el-menu-item index="/settings">
           <el-icon><Setting /></el-icon>
           <span>设置</span>

@@ -22,6 +22,7 @@ const (
 type Handler struct {
 	Machines          *service.MachineService
 	Rules             *service.RuleService
+	Groups            *service.GroupService
 	Stats             *service.StatsService
 	Settings          *service.SettingsService
 	mu                sync.RWMutex
@@ -47,10 +48,11 @@ type adminClaims struct {
 	jwt.RegisteredClaims
 }
 
-func NewHandler(machines *service.MachineService, rules *service.RuleService, stats *service.StatsService, settings *service.SettingsService, adminPasswordHash string) *Handler {
+func NewHandler(machines *service.MachineService, rules *service.RuleService, groups *service.GroupService, stats *service.StatsService, settings *service.SettingsService, adminPasswordHash string) *Handler {
 	return &Handler{
 		Machines:          machines,
 		Rules:             rules,
+		Groups:            groups,
 		Stats:             stats,
 		Settings:          settings,
 		AdminPasswordHash: adminPasswordHash,

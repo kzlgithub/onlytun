@@ -105,6 +105,42 @@ export const ruleApi = {
   },
 };
 
+export const machineGroupApi = {
+  list(params = {}) {
+    return api.get('/api/machine-groups', { params });
+  },
+  create(payload) {
+    return api.post('/api/machine-groups', payload);
+  },
+  update(id, payload) {
+    return api.put(`/api/machine-groups/${id}`, payload);
+  },
+  remove(id) {
+    return api.delete(`/api/machine-groups/${id}`);
+  },
+  setMembers(id, machineIds) {
+    return api.put(`/api/machine-groups/${id}/members`, { machine_ids: machineIds });
+  },
+};
+
+export const groupRuleApi = {
+  list() {
+    return api.get('/api/group-rules');
+  },
+  create(payload) {
+    return api.post('/api/group-rules', payload);
+  },
+  update(id, payload) {
+    return api.put(`/api/group-rules/${id}`, payload);
+  },
+  remove(id) {
+    return api.delete(`/api/group-rules/${id}`);
+  },
+  toggle(id) {
+    return api.patch(`/api/group-rules/${id}/toggle`);
+  },
+};
+
 export const statsApi = {
   getRuleStats(ruleId, range) {
     return api.get(`/api/stats/${ruleId}`, {

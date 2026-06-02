@@ -58,13 +58,14 @@ func main() {
 
 	machineService := service.NewMachineService(gdb, tunnelPort)
 	ruleService := service.NewRuleService(gdb, tunnelPort)
+	groupService := service.NewGroupService(gdb, tunnelPort)
 	statsService := service.NewStatsService(gdb)
 	settingsService := service.NewSettingsService(gdb)
 	passwordHash, err := settingsService.AdminPasswordHash(password)
 	if err != nil {
 		log.Fatalf("load admin password failed: %v", err)
 	}
-	handler := api.NewHandler(machineService, ruleService, statsService, settingsService, passwordHash)
+	handler := api.NewHandler(machineService, ruleService, groupService, statsService, settingsService, passwordHash)
 	api.PanelVersion = Version
 
 	router := gin.New()
@@ -89,6 +90,16 @@ func main() {
 	admin.PUT("/rules/:id", handler.UpdateRule)
 	admin.DELETE("/rules/:id", handler.DeleteRule)
 	admin.PATCH("/rules/:id/toggle", handler.ToggleRule)
+	admin.GET("/machine-groups", handler.ListMachineGroups)
+	admin.POST("/machine-groups", handler.CreateMachineGroup)
+	admin.PUT("/machine-groups/:id", handler.UpdateMachineGroup)
+	admin.DELETE("/machine-groups/:id", handler.DeleteMachineGroup)
+	admin.PUT("/machine-groups/:id/members", handler.SetMachineGroupMembers)
+	admin.GET("/group-rules", handler.ListDeviceGroupRules)
+	admin.POST("/group-rules", handler.CreateDeviceGroupRule)
+	admin.PUT("/group-rules/:id", handler.UpdateDeviceGroupRule)
+	admin.DELETE("/group-rules/:id", handler.DeleteDeviceGroupRule)
+	admin.PATCH("/group-rules/:id/toggle", handler.ToggleDeviceGroupRule)
 	admin.GET("/stats/:rule_id", handler.GetRuleStats)
 	admin.GET("/panel/metrics", handler.GetPanelMetrics)
 	admin.GET("/panel/version", handler.GetPanelVersion)
@@ -137,7 +148,7 @@ func main() {
 func skipAccessLog(c *gin.Context) bool {
 	if c.Request.Method == http.MethodGet {
 		switch c.Request.URL.Path {
-		case "/api/machines", "/api/rules", "/api/panel/metrics", "/api/panel/version":
+		case "/api/machines", "/api/rules", "/api/machine-groups", "/api/group-rules", "/api/panel/metrics", "/api/panel/version":
 			return true
 		default:
 			if strings.HasPrefix(c.Request.URL.Path, "/api/stats/") {

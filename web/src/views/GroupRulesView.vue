@@ -52,14 +52,28 @@
           </div>
           <div class="group-card-list">
             <div v-for="group in filteredIngressGroups" :key="group.id" class="group-card">
-              <div>
-                <strong>{{ group.name }}</strong>
-                <p>{{ group.machine_count || 0 }} 台入口机</p>
-              </div>
-              <div class="group-actions">
-                <el-button link type="primary" :disabled="modeDisabled" @click="openMembersDialog(group)">成员</el-button>
-                <el-button link type="primary" :disabled="modeDisabled" @click="openGroupDialog(group.role, group)">编辑</el-button>
-                <el-button link type="danger" :disabled="modeDisabled" @click="deleteGroup(group)">删除</el-button>
+              <div class="group-card-main">
+                <div class="group-card-title-row">
+                  <div>
+                    <strong>{{ group.name }}</strong>
+                    <p>{{ group.machine_count || 0 }} 台入口机</p>
+                  </div>
+                  <div class="group-actions">
+                    <el-button link type="primary" :disabled="modeDisabled" @click="openMembersDialog(group)">成员</el-button>
+                    <el-button link type="primary" :disabled="modeDisabled" @click="openGroupDialog(group.role, group)">编辑</el-button>
+                    <el-button link type="danger" :disabled="modeDisabled" @click="deleteGroup(group)">删除</el-button>
+                  </div>
+                </div>
+                <div class="member-preview-list">
+                  <div v-for="machine in group.members || []" :key="machine.id" class="member-preview-item" :class="{ offline: !machine.online }">
+                    <span class="member-status-dot" :class="{ online: machine.online }"></span>
+                    <div class="member-preview-text">
+                      <strong>{{ machine.name || machine.ip || machine.id }}</strong>
+                      <span>{{ machine.ip || '未上报 IP' }} · {{ machine.agent_version || 'unknown' }}</span>
+                    </div>
+                  </div>
+                  <div v-if="!(group.members || []).length" class="member-preview-empty">暂无成员，点击“成员”添加入口机</div>
+                </div>
               </div>
             </div>
             <el-empty v-if="filteredIngressGroups.length === 0" description="暂无入口组" />
@@ -73,14 +87,28 @@
           </div>
           <div class="group-card-list">
             <div v-for="group in filteredEgressGroups" :key="group.id" class="group-card">
-              <div>
-                <strong>{{ group.name }}</strong>
-                <p>{{ group.machine_count || 0 }} 台出口机</p>
-              </div>
-              <div class="group-actions">
-                <el-button link type="primary" :disabled="modeDisabled" @click="openMembersDialog(group)">成员</el-button>
-                <el-button link type="primary" :disabled="modeDisabled" @click="openGroupDialog(group.role, group)">编辑</el-button>
-                <el-button link type="danger" :disabled="modeDisabled" @click="deleteGroup(group)">删除</el-button>
+              <div class="group-card-main">
+                <div class="group-card-title-row">
+                  <div>
+                    <strong>{{ group.name }}</strong>
+                    <p>{{ group.machine_count || 0 }} 台出口机</p>
+                  </div>
+                  <div class="group-actions">
+                    <el-button link type="primary" :disabled="modeDisabled" @click="openMembersDialog(group)">成员</el-button>
+                    <el-button link type="primary" :disabled="modeDisabled" @click="openGroupDialog(group.role, group)">编辑</el-button>
+                    <el-button link type="danger" :disabled="modeDisabled" @click="deleteGroup(group)">删除</el-button>
+                  </div>
+                </div>
+                <div class="member-preview-list">
+                  <div v-for="machine in group.members || []" :key="machine.id" class="member-preview-item" :class="{ offline: !machine.online }">
+                    <span class="member-status-dot" :class="{ online: machine.online }"></span>
+                    <div class="member-preview-text">
+                      <strong>{{ machine.name || machine.ip || machine.id }}</strong>
+                      <span>{{ machine.ip || '未上报 IP' }} · {{ machine.agent_version || 'unknown' }}</span>
+                    </div>
+                  </div>
+                  <div v-if="!(group.members || []).length" class="member-preview-empty">暂无成员，点击“成员”添加出口机</div>
+                </div>
               </div>
             </div>
             <el-empty v-if="filteredEgressGroups.length === 0" description="暂无出口组" />
@@ -703,14 +731,22 @@ onBeforeUnmount(() => {
 }
 
 .group-card {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
   padding: 14px 16px;
   border: 1px solid rgba(113, 135, 166, 0.16);
   border-radius: 18px;
   background: rgba(255, 255, 255, 0.86);
+}
+
+.group-card-main {
+  display: grid;
+  gap: 12px;
+}
+
+.group-card-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .group-card strong {
@@ -726,6 +762,74 @@ onBeforeUnmount(() => {
 
 .group-actions {
   white-space: nowrap;
+}
+
+.member-preview-list {
+  display: grid;
+  gap: 8px;
+}
+
+.member-preview-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid rgba(113, 135, 166, 0.12);
+  border-radius: 14px;
+  background: rgba(247, 251, 255, 0.9);
+}
+
+.member-preview-item.offline {
+  opacity: 0.62;
+  background: rgba(241, 245, 249, 0.82);
+}
+
+.member-status-dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #cbd5e1;
+  box-shadow: 0 0 0 4px rgba(148, 163, 184, 0.12);
+}
+
+.member-status-dot.online {
+  background: #45c66f;
+  box-shadow: 0 0 0 4px rgba(69, 198, 111, 0.14);
+}
+
+.member-preview-text {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.member-preview-text strong {
+  overflow: hidden;
+  max-width: 160px;
+  color: #17243a;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.member-preview-text span {
+  overflow: hidden;
+  color: #75869d;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.member-preview-empty {
+  padding: 9px 10px;
+  border: 1px dashed rgba(113, 135, 166, 0.22);
+  border-radius: 14px;
+  color: #8292a8;
+  font-size: 12px;
+  background: rgba(255, 255, 255, 0.52);
 }
 
 .rule-card {

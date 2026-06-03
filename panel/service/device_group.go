@@ -37,7 +37,8 @@ type GroupMembersInput struct {
 
 type MachineGroupView struct {
 	paneldb.MachineGroup
-	MachineCount int64 `json:"machine_count"`
+	MachineCount int64             `json:"machine_count"`
+	Members      []paneldb.Machine `json:"members"`
 }
 
 type DeviceGroupRuleInput struct {
@@ -100,11 +101,18 @@ func (s *GroupService) ListGroups(role string) ([]MachineGroupView, error) {
 
 	views := make([]MachineGroupView, 0, len(groups))
 	for _, group := range groups {
-		var count int64
-		if err := s.db.Model(&paneldb.Machine{}).Where("group_id = ?", group.ID).Count(&count).Error; err != nil {
+		var members []paneldb.Machine
+		if err := s.db.
+			Where("group_id = ?", group.ID).
+			Order("online DESC, name ASC, ip ASC").
+			Find(&members).Error; err != nil {
 			return nil, err
 		}
-		views = append(views, MachineGroupView{MachineGroup: group, MachineCount: count})
+		views = append(views, MachineGroupView{
+			MachineGroup: group,
+			MachineCount: int64(len(members)),
+			Members:      members,
+		})
 	}
 	return views, nil
 }

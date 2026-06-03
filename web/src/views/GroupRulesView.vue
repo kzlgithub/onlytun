@@ -1,37 +1,46 @@
 <template>
   <div class="page-shell group-rules-page">
-    <div class="mode-toggle-row">
+    <div class="mode-title-action">
       <div class="mode-toggle-pill" :class="{ active: groupStore.modeEnabled }">
-        <span class="mode-toggle-label">
-          {{ groupStore.modeEnabled ? '设备组模式运行中' : '设备组模式已关闭' }}
-        </span>
+        <span class="mode-toggle-label">设备组模式</span>
         <el-switch
           :model-value="groupStore.modeEnabled"
           :loading="modeSaving"
           @change="toggleMode"
         />
+        <el-tag :type="groupStore.modeEnabled ? 'primary' : 'info'" effect="light" round>
+          {{ groupStore.modeEnabled ? '已开启' : '已关闭' }}
+        </el-tag>
       </div>
     </div>
 
     <el-card class="panel-card group-tabs-card" shadow="never">
-      <el-tabs v-model="activeTab" class="group-tabs">
-        <el-tab-pane label="分组" name="groups">
-        <div class="page-header group-header">
+      <div class="group-card-toolbar">
+        <div class="group-tab-switch" role="tablist" aria-label="设备组规则视图">
+          <button :class="{ active: activeTab === 'rules' }" type="button" @click="activeTab = 'rules'">规则</button>
+          <button :class="{ active: activeTab === 'groups' }" type="button" @click="activeTab = 'groups'">分组</button>
+        </div>
+        <div class="toolbar group-toolbar">
+          <el-input v-model="keyword" class="search-input" clearable :placeholder="searchPlaceholder" />
+          <el-button :loading="manualRefreshing || groupStore.refreshing" round @click="manualRefresh">
+            刷新
+          </el-button>
+          <template v-if="activeTab === 'groups'">
+            <el-button type="primary" round :disabled="modeDisabled" @click="openGroupDialog('ingress')">新增入口组</el-button>
+            <el-button round :disabled="modeDisabled" @click="openGroupDialog('egress')">新增出口组</el-button>
+          </template>
+          <el-button v-else type="primary" round :disabled="modeDisabled" @click="openRuleDialog()">新增组规则</el-button>
+        </div>
+      </div>
+
+      <div v-if="activeTab === 'groups'" class="tab-content">
+        <div class="section-head">
           <div>
-            <h3 class="section-title">设备组规则</h3>
+            <h3 class="section-title">设备分组</h3>
             <p class="section-meta">
               {{ groupStore.ingressGroups.length }} 个入口组 · {{ groupStore.egressGroups.length }} 个出口组 ·
-              {{ groupStore.rules.length }} 条组规则
+              每台入口机只属于一个入口组
             </p>
-          </div>
-          <div class="toolbar">
-            <el-input v-model="keyword" class="search-input" clearable placeholder="搜索组、规则、目标地址" />
-            <el-button :loading="manualRefreshing || groupStore.refreshing" round @click="manualRefresh">
-              立即刷新
-            </el-button>
-            <el-button round :disabled="modeDisabled" @click="openGroupDialog('ingress')">新增入口组</el-button>
-            <el-button round :disabled="modeDisabled" @click="openGroupDialog('egress')">新增出口组</el-button>
-            <el-button v-if="false" type="primary" :disabled="modeDisabled" @click="openRuleDialog()">新增组规则</el-button>
           </div>
         </div>
 
@@ -78,24 +87,19 @@
           </div>
         </section>
       </div>
-        </el-tab-pane>
+      </div>
 
-        <el-tab-pane label="规则" name="rules">
-        <div class="table-card-header">
+      <div v-else class="tab-content">
+        <div class="section-head">
           <div>
             <h3 class="section-title">设备组转发规则</h3>
-            <p class="section-meta">单条转发规则优先；冲突入口机会自动跳过。</p>
-          </div>
-          <div class="toolbar">
-            <el-input v-model="keyword" class="search-input" clearable placeholder="搜索规则、分组、目标地址" />
-            <el-button :loading="manualRefreshing || groupStore.refreshing" round @click="manualRefresh">
-              立即刷新
-            </el-button>
-            <el-button type="primary" :disabled="modeDisabled" @click="openRuleDialog()">新增组规则</el-button>
+            <p class="section-meta">
+              {{ groupStore.modeEnabled ? '设备组模式开启后，仅设备组规则会下发到 Agent。' : '当前设备组模式关闭，组规则暂不下发。' }}
+            </p>
           </div>
         </div>
 
-      <el-table :data="filteredRules" row-key="id" v-loading="initialLoading">
+      <el-table :data="filteredRules" row-key="id" v-loading="initialLoading" empty-text="暂无设备组规则">
         <el-table-column label="规则名称" min-width="160">
           <template #default="{ row }">
             <span class="rule-name">{{ row.name }}</span>
@@ -164,8 +168,7 @@
           </template>
         </el-table-column>
       </el-table>
-        </el-tab-pane>
-      </el-tabs>
+      </div>
     </el-card>
 
     <el-dialog v-model="groupDialog.visible" :title="groupDialog.id ? '编辑设备组' : '新增设备组'" width="520px">
@@ -298,6 +301,9 @@ const ruleForm = reactive({
 let timer;
 
 const modeDisabled = computed(() => !groupStore.modeEnabled);
+const searchPlaceholder = computed(() =>
+  activeTab.value === 'groups' ? '搜索分组、规则、目标地址' : '搜索规则、分组、目标地址',
+);
 
 const groupRules = {
   name: [{ required: true, message: '请输入组名称', trigger: 'blur' }],
@@ -518,26 +524,28 @@ onBeforeUnmount(() => {
   gap: 12px;
 }
 
-.mode-toggle-row {
+.mode-title-action {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
   flex: 0 0 auto;
-  margin-top: -10px;
-  margin-bottom: -2px;
+  min-height: 36px;
+  margin-top: -62px;
+  margin-bottom: 26px;
 }
 
 .mode-toggle-pill {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 9px;
   box-sizing: border-box;
-  min-height: 36px;
-  padding: 6px 10px 6px 14px;
+  min-height: 34px;
+  padding: 5px 8px 5px 13px;
   border: 1px solid rgba(113, 135, 166, 0.16);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.76);
+  background: rgba(255, 255, 255, 0.86);
   color: #64748b;
-  box-shadow: 0 10px 24px rgba(19, 34, 56, 0.05);
+  box-shadow: 0 10px 24px rgba(19, 34, 56, 0.06);
   transition: border-color 0.18s ease, background 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
 }
 
@@ -546,6 +554,13 @@ onBeforeUnmount(() => {
   background: linear-gradient(135deg, rgba(237, 246, 255, 0.94), rgba(255, 255, 255, 0.9));
   color: #1f6feb;
   box-shadow: 0 12px 26px rgba(31, 111, 235, 0.1);
+}
+
+.mode-toggle-pill :deep(.el-tag) {
+  height: 22px;
+  padding: 0 9px;
+  border: none;
+  font-weight: 700;
 }
 
 .mode-toggle-label {
@@ -580,19 +595,17 @@ onBeforeUnmount(() => {
   overflow: hidden;
 }
 
-.group-tabs :deep(.el-tabs__header) {
-  margin: 0 0 20px;
-}
-
-.group-tabs :deep(.el-tabs__nav-wrap::after) {
-  display: none;
-}
-
-.group-tabs :deep(.el-tabs__nav-scroll) {
+.group-card-toolbar {
   display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid rgba(113, 135, 166, 0.12);
 }
 
-.group-tabs :deep(.el-tabs__nav) {
+.group-tab-switch {
+  display: inline-flex;
   gap: 6px;
   padding: 5px;
   border: 1px solid rgba(113, 135, 166, 0.16);
@@ -600,44 +613,46 @@ onBeforeUnmount(() => {
   background: #f3f7fc;
 }
 
-.group-tabs :deep(.el-tabs__active-bar) {
-  display: none;
-}
-
-.group-tabs :deep(.el-tabs__item) {
+.group-tab-switch button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   height: 34px;
   line-height: 34px;
   padding: 0 18px;
+  border: 0;
   border-radius: 999px;
+  background: transparent;
   color: #64748b;
   font-weight: 700;
+  cursor: pointer;
   transition: color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
 }
 
-.group-tabs :deep(.el-tabs__item.is-active) {
+.group-tab-switch button.active {
   color: #1f6feb;
   background: #fff;
   box-shadow: 0 8px 20px rgba(31, 111, 235, 0.13);
 }
 
-.group-tabs :deep(.el-tabs__item:hover) {
+.group-tab-switch button:hover {
   color: #1f6feb;
 }
 
-.group-tabs :deep(#tab-rules) {
-  order: 1;
+.group-toolbar {
+  justify-content: flex-end;
 }
 
-.group-tabs :deep(#tab-groups) {
-  order: 2;
+.tab-content {
+  padding-top: 22px;
 }
 
-.group-header {
-  display: grid;
-  gap: 18px;
+.section-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
 }
 
 .toolbar {
@@ -778,13 +793,18 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 1080px) {
-  .tabs-card-inner {
+  .group-card-toolbar,
+  .section-head {
     align-items: stretch;
     flex-direction: column;
   }
 
-  .tabs-actions {
+  .group-toolbar {
     justify-content: flex-start;
+  }
+
+  .mode-toggle-pill {
+    align-self: flex-end;
   }
 
   .group-grid,

@@ -1,19 +1,13 @@
 <template>
   <div class="page-shell group-rules-page">
-    <div class="mode-strip">
-      <div class="mode-card-inner">
-        <div>
-          <h3>设备组规则模式</h3>
-          <p>
-            关闭时使用单条转发规则；开启后全体单条转发规则在运行层面失效，只下发设备组规则。
-          </p>
-        </div>
+    <div class="mode-toggle-row">
+      <div class="mode-toggle-pill" :class="{ active: groupStore.modeEnabled }">
+        <span class="mode-toggle-label">
+          {{ groupStore.modeEnabled ? '设备组模式运行中' : '设备组模式已关闭' }}
+        </span>
         <el-switch
           :model-value="groupStore.modeEnabled"
           :loading="modeSaving"
-          inline-prompt
-          active-text="已开启"
-          inactive-text="已关闭"
           @change="toggleMode"
         />
       </div>
@@ -520,46 +514,65 @@ onBeforeUnmount(() => {
 <style scoped>
 .group-rules-page {
   display: grid;
-  gap: 16px;
+  gap: 12px;
 }
 
-.mode-strip {
-  padding: 9px 14px;
-  border: 1px solid rgba(84, 112, 150, 0.12);
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.74);
-  box-shadow: 0 10px 24px rgba(19, 34, 56, 0.04);
-}
-
-.mode-card-inner {
+.mode-toggle-row {
   display: flex;
+  justify-content: flex-end;
+  margin-top: -10px;
+  margin-bottom: -2px;
+}
+
+.mode-toggle-pill {
+  display: inline-flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  min-height: 28px;
-}
-
-.mode-strip h3 {
-  margin: 0;
-  color: #132238;
-  font-size: 14px;
-  line-height: 1.2;
-}
-
-.mode-strip p {
-  margin: 2px 0 0;
+  gap: 10px;
+  padding: 7px 10px 7px 14px;
+  border: 1px solid rgba(113, 135, 166, 0.16);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.76);
   color: #64748b;
-  font-size: 12px;
-  line-height: 1.35;
+  box-shadow: 0 10px 24px rgba(19, 34, 56, 0.05);
+  transition: border-color 0.18s ease, background 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
 }
 
-.mode-strip :deep(.el-switch) {
-  flex: none;
+.mode-toggle-pill.active {
+  border-color: rgba(31, 111, 235, 0.22);
+  background: linear-gradient(135deg, rgba(237, 246, 255, 0.94), rgba(255, 255, 255, 0.9));
+  color: #1f6feb;
+  box-shadow: 0 12px 26px rgba(31, 111, 235, 0.1);
+}
+
+.mode-toggle-label {
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.mode-toggle-pill :deep(.el-switch) {
+  height: 22px;
+}
+
+.mode-toggle-pill :deep(.el-switch__core) {
+  width: 42px;
+  min-width: 42px;
+  height: 22px;
+  border: none;
+  background: #cbd5e1;
+}
+
+.mode-toggle-pill :deep(.el-switch.is-checked .el-switch__core) {
+  background: linear-gradient(135deg, #1f6feb, #4aa3ff);
+}
+
+.mode-toggle-pill :deep(.el-switch__action) {
+  width: 18px;
+  height: 18px;
 }
 
 .group-tabs-card {
   overflow: hidden;
-  margin-top: 2px;
 }
 
 .group-tabs :deep(.el-tabs__header) {

@@ -19,35 +19,9 @@
       </div>
     </el-card>
 
-    <el-card class="panel-card tabs-card" shadow="never">
-      <div class="tabs-card-inner">
-        <div class="tabs-title">
-          <h3 class="section-title">设备组规则</h3>
-          <p class="section-meta">
-            {{ groupStore.rules.length }} 条规则 · {{ groupStore.ingressGroups.length }} 个入口组 ·
-            {{ groupStore.egressGroups.length }} 个出口组
-          </p>
-        </div>
-        <div class="tabs-actions">
-          <el-radio-group v-model="activeTab" class="page-tabs">
-            <el-radio-button label="rules">规则</el-radio-button>
-            <el-radio-button label="groups">分组</el-radio-button>
-          </el-radio-group>
-          <el-input v-model="keyword" class="search-input" clearable placeholder="搜索规则、分组、目标地址" />
-          <el-button :loading="manualRefreshing || groupStore.refreshing" round @click="manualRefresh">
-            立即刷新
-          </el-button>
-          <template v-if="activeTab === 'groups'">
-            <el-button round :disabled="modeDisabled" @click="openGroupDialog('ingress')">新增入口组</el-button>
-            <el-button round :disabled="modeDisabled" @click="openGroupDialog('egress')">新增出口组</el-button>
-          </template>
-          <el-button v-else type="primary" :disabled="modeDisabled" @click="openRuleDialog()">新增组规则</el-button>
-        </div>
-      </div>
-    </el-card>
-
-    <el-card v-show="activeTab === 'groups'" class="panel-card" shadow="never">
-      <template #header>
+    <el-card class="panel-card group-tabs-card" shadow="never">
+      <el-tabs v-model="activeTab" class="group-tabs">
+        <el-tab-pane label="分组" name="groups">
         <div class="page-header group-header">
           <div>
             <h3 class="section-title">设备组规则</h3>
@@ -63,10 +37,9 @@
             </el-button>
             <el-button round :disabled="modeDisabled" @click="openGroupDialog('ingress')">新增入口组</el-button>
             <el-button round :disabled="modeDisabled" @click="openGroupDialog('egress')">新增出口组</el-button>
-            <el-button type="primary" :disabled="modeDisabled" @click="openRuleDialog()">新增组规则</el-button>
+            <el-button v-if="false" type="primary" :disabled="modeDisabled" @click="openRuleDialog()">新增组规则</el-button>
           </div>
         </div>
-      </template>
 
       <div v-loading="initialLoading" class="group-grid">
         <section class="group-panel">
@@ -111,17 +84,22 @@
           </div>
         </section>
       </div>
-    </el-card>
+        </el-tab-pane>
 
-    <el-card v-show="activeTab === 'rules'" class="panel-card rule-card" shadow="never">
-      <template #header>
+        <el-tab-pane label="规则" name="rules">
         <div class="table-card-header">
           <div>
             <h3 class="section-title">设备组转发规则</h3>
             <p class="section-meta">单条转发规则优先；冲突入口机会自动跳过。</p>
           </div>
+          <div class="toolbar">
+            <el-input v-model="keyword" class="search-input" clearable placeholder="搜索规则、分组、目标地址" />
+            <el-button :loading="manualRefreshing || groupStore.refreshing" round @click="manualRefresh">
+              立即刷新
+            </el-button>
+            <el-button type="primary" :disabled="modeDisabled" @click="openRuleDialog()">新增组规则</el-button>
+          </div>
         </div>
-      </template>
 
       <el-table :data="filteredRules" row-key="id" v-loading="initialLoading">
         <el-table-column label="规则名称" min-width="160">
@@ -192,6 +170,8 @@
           </template>
         </el-table-column>
       </el-table>
+        </el-tab-pane>
+      </el-tabs>
     </el-card>
 
     <el-dialog v-model="groupDialog.visible" :title="groupDialog.id ? '编辑设备组' : '新增设备组'" width="520px">
@@ -602,13 +582,29 @@ onBeforeUnmount(() => {
   font-weight: 700;
 }
 
+.group-tabs-card {
+  overflow: hidden;
+}
+
+.group-tabs :deep(.el-tabs__header) {
+  margin: 0 0 18px;
+}
+
+.group-tabs :deep(.el-tabs__nav-wrap::after) {
+  display: none;
+}
+
+.group-tabs :deep(#tab-rules) {
+  order: 1;
+}
+
+.group-tabs :deep(#tab-groups) {
+  order: 2;
+}
+
 .group-header {
   display: grid;
   gap: 18px;
-}
-
-.group-header .toolbar {
-  display: none;
 }
 
 .toolbar {

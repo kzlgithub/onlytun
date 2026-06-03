@@ -530,7 +530,9 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  padding: 7px 10px 7px 14px;
+  box-sizing: border-box;
+  min-height: 36px;
+  padding: 6px 10px 6px 14px;
   border: 1px solid rgba(113, 135, 166, 0.16);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.76);
@@ -549,6 +551,7 @@ onBeforeUnmount(() => {
 .mode-toggle-label {
   font-size: 13px;
   font-weight: 700;
+  line-height: 20px;
   white-space: nowrap;
 }
 
@@ -602,7 +605,11 @@ onBeforeUnmount(() => {
 }
 
 .group-tabs :deep(.el-tabs__item) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   height: 34px;
+  line-height: 34px;
   padding: 0 18px;
   border-radius: 999px;
   color: #64748b;

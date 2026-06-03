@@ -6,6 +6,7 @@ import (
 	"hash/fnv"
 	"sort"
 	"strings"
+	"time"
 
 	paneldb "github.com/onlytun/panel/db"
 	"gorm.io/gorm"
@@ -37,8 +38,25 @@ type GroupMembersInput struct {
 
 type MachineGroupView struct {
 	paneldb.MachineGroup
-	MachineCount int64             `json:"machine_count"`
-	Members      []paneldb.Machine `json:"members"`
+	MachineCount int64                    `json:"machine_count"`
+	Members      []MachineGroupMemberView `json:"members"`
+}
+
+type MachineGroupMemberView struct {
+	ID             string    `json:"id"`
+	Name           string    `json:"name"`
+	Role           string    `json:"role"`
+	GroupID        string    `json:"group_id"`
+	IP             string    `json:"ip"`
+	Online         bool      `json:"online"`
+	OS             string    `json:"os"`
+	AgentVersion   string    `json:"agent_version"`
+	CPUPercent     float64   `json:"cpu_percent"`
+	MemPercent     float64   `json:"mem_percent"`
+	DiskPercent    float64   `json:"disk_percent"`
+	UptimeSeconds  uint64    `json:"uptime_seconds"`
+	LastHeartbeat  time.Time `json:"last_heartbeat"`
+	OnlineSince    time.Time `json:"online_since"`
 }
 
 type DeviceGroupRuleInput struct {
@@ -111,7 +129,7 @@ func (s *GroupService) ListGroups(role string) ([]MachineGroupView, error) {
 		views = append(views, MachineGroupView{
 			MachineGroup: group,
 			MachineCount: int64(len(members)),
-			Members:      members,
+			Members:      buildMachineGroupMemberViews(members),
 		})
 	}
 	return views, nil
@@ -517,6 +535,29 @@ func buildMachineGroup(input MachineGroupInput) (*paneldb.MachineGroup, error) {
 		Role:   role,
 		Remark: strings.TrimSpace(input.Remark),
 	}, nil
+}
+
+func buildMachineGroupMemberViews(machines []paneldb.Machine) []MachineGroupMemberView {
+	members := make([]MachineGroupMemberView, 0, len(machines))
+	for _, machine := range machines {
+		members = append(members, MachineGroupMemberView{
+			ID:             machine.ID,
+			Name:           machine.Name,
+			Role:           machine.Role,
+			GroupID:        machine.GroupID,
+			IP:             machine.IP,
+			Online:         machine.Online,
+			OS:             machine.OS,
+			AgentVersion:   machine.AgentVersion,
+			CPUPercent:     machine.CPUPercent,
+			MemPercent:     machine.MemPercent,
+			DiskPercent:    machine.DiskPercent,
+			UptimeSeconds:  machine.UptimeSeconds,
+			LastHeartbeat:  machine.LastHeartbeat,
+			OnlineSince:    machine.OnlineSince,
+		})
+	}
+	return members
 }
 
 func uniqueStrings(values []string) []string {

@@ -513,13 +513,15 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .group-rules-page {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 12px;
 }
 
 .mode-toggle-row {
   display: flex;
   justify-content: flex-end;
+  flex: 0 0 auto;
   margin-top: -10px;
   margin-bottom: -2px;
 }

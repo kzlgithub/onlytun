@@ -1,6 +1,6 @@
 <template>
   <div class="page-shell group-rules-page">
-    <el-card class="panel-card mode-card" shadow="never">
+    <div class="mode-strip">
       <div class="mode-card-inner">
         <div>
           <h3>设备组规则模式</h3>
@@ -17,7 +17,7 @@
           @change="toggleMode"
         />
       </div>
-    </el-card>
+    </div>
 
     <el-card class="panel-card group-tabs-card" shadow="never">
       <el-tabs v-model="activeTab" class="group-tabs">
@@ -523,12 +523,12 @@ onBeforeUnmount(() => {
   gap: 16px;
 }
 
-.mode-card {
-  overflow: hidden;
-  border-color: rgba(47, 111, 237, 0.1);
-  background:
-    linear-gradient(135deg, rgba(240, 247, 255, 0.95), rgba(255, 255, 255, 0.96)),
-    radial-gradient(circle at 10% 10%, rgba(64, 158, 255, 0.16), transparent 36%);
+.mode-strip {
+  padding: 9px 14px;
+  border: 1px solid rgba(84, 112, 150, 0.12);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.74);
+  box-shadow: 0 10px 24px rgba(19, 34, 56, 0.04);
 }
 
 .mode-card-inner {
@@ -536,21 +536,25 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  min-height: 34px;
+  min-height: 28px;
 }
 
-.mode-card h3 {
+.mode-strip h3 {
   margin: 0;
   color: #132238;
-  font-size: 16px;
+  font-size: 14px;
   line-height: 1.2;
 }
 
-.mode-card p {
-  margin: 4px 0 0;
+.mode-strip p {
+  margin: 2px 0 0;
   color: #64748b;
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.35;
+}
+
+.mode-strip :deep(.el-switch) {
+  flex: none;
 }
 
 .group-tabs-card {

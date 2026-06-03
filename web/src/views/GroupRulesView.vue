@@ -520,78 +520,85 @@ onBeforeUnmount(() => {
 <style scoped>
 .group-rules-page {
   display: grid;
-  gap: 22px;
+  gap: 16px;
 }
 
 .mode-card {
   overflow: hidden;
+  border-color: rgba(47, 111, 237, 0.1);
+  background:
+    linear-gradient(135deg, rgba(240, 247, 255, 0.95), rgba(255, 255, 255, 0.96)),
+    radial-gradient(circle at 10% 10%, rgba(64, 158, 255, 0.16), transparent 36%);
 }
 
 .mode-card-inner {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 18px;
+  gap: 16px;
+  min-height: 34px;
 }
 
 .mode-card h3 {
-  margin: 0 0 8px;
+  margin: 0;
   color: #132238;
-  font-size: 20px;
+  font-size: 16px;
+  line-height: 1.2;
 }
 
 .mode-card p {
-  margin: 0;
+  margin: 4px 0 0;
   color: #64748b;
-  line-height: 1.7;
-}
-
-.tabs-card {
-  position: sticky;
-  top: 0;
-  z-index: 5;
-}
-
-.tabs-card-inner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-}
-
-.tabs-title {
-  min-width: 220px;
-}
-
-.tabs-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 12px;
-  flex: 1;
-  flex-wrap: wrap;
-}
-
-.page-tabs {
-  --el-border-radius-base: 999px;
-}
-
-.page-tabs :deep(.el-radio-button__inner) {
-  min-width: 74px;
-  border-radius: 999px;
-  font-weight: 700;
+  font-size: 13px;
+  line-height: 1.35;
 }
 
 .group-tabs-card {
   overflow: hidden;
+  margin-top: 2px;
 }
 
 .group-tabs :deep(.el-tabs__header) {
-  margin: 0 0 18px;
+  margin: 0 0 20px;
 }
 
 .group-tabs :deep(.el-tabs__nav-wrap::after) {
   display: none;
+}
+
+.group-tabs :deep(.el-tabs__nav-scroll) {
+  display: flex;
+}
+
+.group-tabs :deep(.el-tabs__nav) {
+  gap: 6px;
+  padding: 5px;
+  border: 1px solid rgba(113, 135, 166, 0.16);
+  border-radius: 999px;
+  background: #f3f7fc;
+}
+
+.group-tabs :deep(.el-tabs__active-bar) {
+  display: none;
+}
+
+.group-tabs :deep(.el-tabs__item) {
+  height: 34px;
+  padding: 0 18px;
+  border-radius: 999px;
+  color: #64748b;
+  font-weight: 700;
+  transition: color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
+}
+
+.group-tabs :deep(.el-tabs__item.is-active) {
+  color: #1f6feb;
+  background: #fff;
+  box-shadow: 0 8px 20px rgba(31, 111, 235, 0.13);
+}
+
+.group-tabs :deep(.el-tabs__item:hover) {
+  color: #1f6feb;
 }
 
 .group-tabs :deep(#tab-rules) {

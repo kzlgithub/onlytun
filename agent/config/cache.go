@@ -24,13 +24,15 @@ type RuleConfig struct {
 
 // Config 完整本地配置。
 type Config struct {
-	MachineID        string       `json:"machine_id"`
-	Role             string       `json:"role"`
-	PSK              string       `json:"psk"`
-	PanelURL         string       `json:"panel_url"`
-	Token            string       `json:"token"`
-	TunnelListenAddr string       `json:"tunnel_listen_addr"`
-	Rules            []RuleConfig `json:"rules"`
+	MachineID           string       `json:"machine_id"`
+	Role                string       `json:"role"`
+	PSK                 string       `json:"psk"`
+	PanelURL            string       `json:"panel_url"`
+	Token               string       `json:"token"`
+	TunnelListenAddr    string       `json:"tunnel_listen_addr"`
+	TunnelAdvertiseAddr string       `json:"tunnel_advertise_addr"`
+	IsIX                bool         `json:"is_ix"`
+	Rules               []RuleConfig `json:"rules"`
 }
 
 // LoadConfig 从文件加载配置，文件不存在返回 error。

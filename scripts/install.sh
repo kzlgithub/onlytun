@@ -12,6 +12,8 @@ PANEL_URL=""
 INSTALL_TOKEN=""
 MACHINE_NAME=""
 ACTION=""
+IS_IX=false
+TUNNEL_ADVERTISE_ADDR=""
 
 AGENT_BIN="/usr/local/bin/onlytun-agent"
 CONFIG_DIR="/etc/onlytun"
@@ -33,6 +35,8 @@ Usage:
 
 Optional non-interactive flags:
   --name MACHINE_NAME
+  --ix
+  --tunnel-advertise-addr HOST:PORT
 EOF
 }
 
@@ -71,6 +75,14 @@ parse_args() {
         ;;
       --name)
         MACHINE_NAME="${2:-}"
+        shift 2
+        ;;
+      --ix)
+        IS_IX=true
+        shift
+        ;;
+      --tunnel-advertise-addr)
+        TUNNEL_ADVERTISE_ADDR="${2:-}"
         shift 2
         ;;
       --install)
@@ -133,6 +145,10 @@ prompt_action_if_missing() {
 
 validate_install_args() {
   [ -n "$INSTALL_TOKEN" ] || fail "--token is required."
+  if [ "$IS_IX" = true ]; then
+    [ "$ROLE" = "egress" ] || fail "--ix can only be used with --role egress."
+    [ -n "$TUNNEL_ADVERTISE_ADDR" ] || fail "--tunnel-advertise-addr is required when --ix is used."
+  fi
 }
 
 prompt_if_missing() {
@@ -169,6 +185,16 @@ prompt_if_missing() {
     done
   fi
   PANEL_URL="${PANEL_URL%/}"
+  if [ "$IS_IX" = true ] && [ "$ROLE" != "egress" ]; then
+    fail "--ix can only be used with egress role."
+  fi
+  if [ "$IS_IX" = true ] && [ -z "$TUNNEL_ADVERTISE_ADDR" ]; then
+    [ -t 0 ] || fail "--tunnel-advertise-addr is required when --ix is used."
+    while [ -z "$TUNNEL_ADVERTISE_ADDR" ]; do
+      printf "IX tunnel advertise address, for example 103.177.162.211:19999: "
+      read -r TUNNEL_ADVERTISE_ADDR
+    done
+  fi
 }
 
 detect_os() {
@@ -277,7 +303,7 @@ json_escape() {
 register_machine() {
   local payload
   payload=$(cat <<EOF
-{"name":"$(json_escape "$MACHINE_NAME")","role":"$(json_escape "$ROLE")","token":"$(json_escape "$INSTALL_TOKEN")","ip":"$(json_escape "$PUBLIC_IP")","os":"$(json_escape "$(uname -s)")"}
+{"name":"$(json_escape "$MACHINE_NAME")","role":"$(json_escape "$ROLE")","token":"$(json_escape "$INSTALL_TOKEN")","ip":"$(json_escape "$PUBLIC_IP")","os":"$(json_escape "$(uname -s)")","is_ix":${IS_IX},"tunnel_advertise_addr":"$(json_escape "$TUNNEL_ADVERTISE_ADDR")"}
 EOF
 )
 
@@ -305,6 +331,8 @@ write_config() {
   "panel_url": "${PANEL_URL}",
   "token": "${INSTALL_TOKEN}",
   "tunnel_listen_addr": "${DEFAULT_TUNNEL_ADDR}",
+  "tunnel_advertise_addr": "$(json_escape "$TUNNEL_ADVERTISE_ADDR")",
+  "is_ix": ${IS_IX},
   "rules": []
 }
 EOF

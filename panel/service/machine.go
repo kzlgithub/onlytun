@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -26,6 +27,7 @@ var (
 	ErrMachineNameRequired  = errors.New("service: machine name is required")
 	ErrMachineOffline       = errors.New("service: machine is offline")
 	ErrInvalidRole          = errors.New("service: invalid role")
+	ErrInvalidTunnelAddr    = errors.New("service: invalid tunnel advertise address")
 	ErrUpdateTaskNotFound   = errors.New("service: update task not found")
 )
 
@@ -41,9 +43,11 @@ type MachineListItem struct {
 }
 
 type RegisterMachineInput struct {
-	Name string
-	Role string
-	OS   string
+	Name                string
+	Role                string
+	OS                  string
+	IsIX                bool
+	TunnelAdvertiseAddr string
 }
 
 type AgentRuleConfig struct {
@@ -58,11 +62,18 @@ type AgentRuleConfig struct {
 type InstallScriptPayload struct {
 	IngressCommand string `json:"ingress_command"`
 	EgressCommand  string `json:"egress_command"`
+	IXCommand      string `json:"ix_command"`
 }
 
 type AgentUpdateTask struct {
 	ID   string `json:"id"`
 	Kind string `json:"kind"`
+}
+
+type MachineUpdateInput struct {
+	Name                string
+	IsIX                *bool
+	TunnelAdvertiseAddr *string
 }
 
 type MachineUpdateResult struct {
@@ -303,9 +314,21 @@ func (s *MachineService) RegisterMachine(token string, input RegisterMachineInpu
 		name = fmt.Sprintf("%s-%d", role, time.Now().Unix())
 	}
 
+	isIX := input.IsIX && role == "egress"
+	advertiseAddr, err := normalizeTunnelAdvertiseAddr(input.TunnelAdvertiseAddr)
+	if err != nil {
+		return nil, "", err
+	}
+	if isIX && advertiseAddr == "" {
+		return nil, "", ErrInvalidTunnelAddr
+	}
+	if role != "egress" && advertiseAddr != "" {
+		return nil, "", ErrInvalidTunnelAddr
+	}
+
 	var machine *paneldb.Machine
 	var sharedPSK string
-	err := s.db.Transaction(func(tx *gorm.DB) error {
+	err = s.db.Transaction(func(tx *gorm.DB) error {
 		var installToken paneldb.InstallToken
 		if err := tx.Take(&installToken, "token = ?", token).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -328,14 +351,16 @@ func (s *MachineService) RegisterMachine(token string, input RegisterMachineInpu
 
 		now := time.Now()
 		record := &paneldb.Machine{
-			Name:          name,
-			Role:          role,
-			IP:            strings.TrimSpace(ip),
-			Token:         token,
-			Online:        true,
-			OS:            strings.TrimSpace(input.OS),
-			LastHeartbeat: now,
-			OnlineSince:   now,
+			Name:                name,
+			Role:                role,
+			IP:                  strings.TrimSpace(ip),
+			IsIX:                isIX,
+			TunnelAdvertiseAddr: advertiseAddr,
+			Token:               token,
+			Online:              true,
+			OS:                  strings.TrimSpace(input.OS),
+			LastHeartbeat:       now,
+			OnlineSince:         now,
 		}
 		if err := tx.Create(record).Error; err != nil {
 			return err
@@ -357,11 +382,10 @@ func (s *MachineService) RegisterMachine(token string, input RegisterMachineInpu
 }
 
 func (s *MachineService) UpdateMachineName(id, name string) (*paneldb.Machine, error) {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return nil, ErrMachineNameRequired
-	}
+	return s.UpdateMachine(id, MachineUpdateInput{Name: name})
+}
 
+func (s *MachineService) UpdateMachine(id string, input MachineUpdateInput) (*paneldb.Machine, error) {
 	var machine paneldb.Machine
 	if err := s.db.Take(&machine, "id = ?", id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -370,11 +394,44 @@ func (s *MachineService) UpdateMachineName(id, name string) (*paneldb.Machine, e
 		return nil, err
 	}
 
-	if err := s.db.Model(&machine).Update("name", name).Error; err != nil {
+	name := strings.TrimSpace(input.Name)
+	if name == "" {
+		name = machine.Name
+	}
+	if strings.TrimSpace(name) == "" {
+		return nil, ErrMachineNameRequired
+	}
+
+	updates := map[string]any{
+		"name": name,
+	}
+
+	nextIsIX := machine.IsIX
+	if input.IsIX != nil {
+		nextIsIX = *input.IsIX && machine.Role == "egress"
+		updates["is_ix"] = nextIsIX
+	}
+
+	nextAdvertiseAddr := machine.TunnelAdvertiseAddr
+	if input.TunnelAdvertiseAddr != nil {
+		advertiseAddr, err := normalizeTunnelAdvertiseAddr(*input.TunnelAdvertiseAddr)
+		if err != nil {
+			return nil, err
+		}
+		nextAdvertiseAddr = advertiseAddr
+		updates["tunnel_advertise_addr"] = advertiseAddr
+	}
+	if nextIsIX && nextAdvertiseAddr == "" {
+		return nil, ErrInvalidTunnelAddr
+	}
+	if machine.Role != "egress" && (nextIsIX || nextAdvertiseAddr != "") {
+		return nil, ErrInvalidTunnelAddr
+	}
+
+	if err := s.db.Model(&machine).Updates(updates).Error; err != nil {
 		return nil, err
 	}
-	machine.Name = name
-	return &machine, nil
+	return s.getMachine(id)
 }
 
 func (s *MachineService) AuthenticateMachineToken(token string) (*paneldb.Machine, error) {
@@ -388,7 +445,7 @@ func (s *MachineService) AuthenticateMachineToken(token string) (*paneldb.Machin
 	return &machine, nil
 }
 
-func (s *MachineService) UpdateHeartbeat(machine *paneldb.Machine, role, ip, agentVersion string, cpuPercent, memPercent, diskPercent float64, uptimeSec, netBytesUp, netBytesDown uint64) error {
+func (s *MachineService) UpdateHeartbeat(machine *paneldb.Machine, role, ip, agentVersion string, isIX *bool, tunnelAdvertiseAddr *string, cpuPercent, memPercent, diskPercent float64, uptimeSec, netBytesUp, netBytesDown uint64) error {
 	if machine == nil {
 		return ErrMachineNotFound
 	}
@@ -416,6 +473,26 @@ func (s *MachineService) UpdateHeartbeat(machine *paneldb.Machine, role, ip, age
 	}
 	if strings.TrimSpace(agentVersion) != "" {
 		updates["agent_version"] = strings.TrimSpace(agentVersion)
+	}
+	nextIsIX := machine.IsIX
+	if isIX != nil {
+		nextIsIX = *isIX && machine.Role == "egress"
+		updates["is_ix"] = nextIsIX
+	}
+	nextAdvertiseAddr := machine.TunnelAdvertiseAddr
+	if tunnelAdvertiseAddr != nil {
+		advertiseAddr, err := normalizeTunnelAdvertiseAddr(*tunnelAdvertiseAddr)
+		if err != nil {
+			return err
+		}
+		nextAdvertiseAddr = advertiseAddr
+		updates["tunnel_advertise_addr"] = advertiseAddr
+	}
+	if nextIsIX && nextAdvertiseAddr == "" {
+		return ErrInvalidTunnelAddr
+	}
+	if machine.Role != "egress" && (nextIsIX || nextAdvertiseAddr != "") {
+		return ErrInvalidTunnelAddr
 	}
 	if !machine.Online || machine.OnlineSince.IsZero() {
 		updates["online_since"] = time.Now()
@@ -489,24 +566,36 @@ func (s *MachineService) BuildInstallScripts(baseURL string) (*InstallScriptPayl
 	if err != nil {
 		return nil, err
 	}
+	ixToken, err := s.GenerateInstallToken()
+	if err != nil {
+		return nil, err
+	}
 
 	baseURL = strings.TrimRight(baseURL, "/")
 	return &InstallScriptPayload{
-		IngressCommand: buildInstallCommand(baseURL, "ingress", ingressToken.Token, s.tunnelPort),
-		EgressCommand:  buildInstallCommand(baseURL, "egress", egressToken.Token, s.tunnelPort),
+		IngressCommand: buildInstallCommand(baseURL, "ingress", ingressToken.Token, nil),
+		EgressCommand:  buildInstallCommand(baseURL, "egress", egressToken.Token, nil),
+		IXCommand:      buildInstallCommand(baseURL, "egress", ixToken.Token, []string{"--ix"}),
 	}, nil
 }
 
-func buildInstallCommand(baseURL, role, token string, tunnelPort int) string {
-	_ = tunnelPort
+func buildInstallCommand(baseURL, role, token string, extraArgs []string) string {
 	escapedBaseURL := shellQuote(baseURL)
 	escapedToken := shellQuote(token)
-	return fmt.Sprintf(
+	command := fmt.Sprintf(
 		"bash <(curl -fsSL https://raw.githubusercontent.com/kzlgithub/onlytun/main/scripts/install.sh) --token %s --role %s --panel %s",
 		escapedToken,
 		role,
 		escapedBaseURL,
 	)
+	for _, arg := range extraArgs {
+		if strings.HasPrefix(arg, "--") {
+			command += " " + arg
+		} else {
+			command += " " + shellQuote(arg)
+		}
+	}
+	return command
 }
 
 func shellQuote(value string) string {
@@ -547,4 +636,42 @@ func getOrCreateSharedPSK(tx *gorm.DB) (string, error) {
 
 func JoinHostPort(host string, port int) string {
 	return net.JoinHostPort(host, fmt.Sprintf("%d", port))
+}
+
+func EgressConnectAddr(machine paneldb.Machine, tunnelPort int) string {
+	if addr := strings.TrimSpace(machine.TunnelAdvertiseAddr); addr != "" {
+		return addr
+	}
+	if host := strings.TrimSpace(machine.IP); host != "" {
+		return JoinHostPort(host, tunnelPort)
+	}
+	return ""
+}
+
+func normalizeTunnelAdvertiseAddr(value string) (string, error) {
+	addr := strings.TrimSpace(value)
+	if addr == "" {
+		return "", nil
+	}
+
+	host, portText, err := net.SplitHostPort(addr)
+	if err != nil || strings.TrimSpace(host) == "" {
+		return "", ErrInvalidTunnelAddr
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil || port <= 0 || port > 65535 {
+		return "", ErrInvalidTunnelAddr
+	}
+	return net.JoinHostPort(strings.TrimSpace(host), strconv.Itoa(port)), nil
+}
+
+func (s *MachineService) getMachine(id string) (*paneldb.Machine, error) {
+	var machine paneldb.Machine
+	if err := s.db.Take(&machine, "id = ?", id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrMachineNotFound
+		}
+		return nil, err
+	}
+	return &machine, nil
 }

@@ -19,6 +19,9 @@
               <el-button class="install-action-btn egress" @click="openInstallDialog('egress')">
                 出口机安装命令
               </el-button>
+              <el-button class="install-action-btn ix" @click="openInstallDialog('ix')">
+                IX机安装命令
+              </el-button>
             </div>
           </div>
           <div class="toolbar">
@@ -65,7 +68,7 @@
 
     <el-dialog
       v-model="installDialog.visible"
-      :title="installDialog.role === 'egress' ? '出口机安装命令' : '入口机安装命令'"
+      :title="installDialogTitle"
       width="720px"
       class="install-dialog"
     >
@@ -139,6 +142,8 @@ const filteredMachines = computed(() => {
       item.ip,
       item.os,
       item.role,
+      item.tunnel_advertise_addr,
+      item.is_ix ? 'IX' : '',
       roleLabel(item.role),
       item.id,
     ]
@@ -152,6 +157,12 @@ const filteredMachines = computed(() => {
 const filteredIngressMachines = computed(() => filteredMachines.value.filter((item) => item.role === 'ingress'));
 const filteredEgressMachines = computed(() => filteredMachines.value.filter((item) => item.role === 'egress'));
 const currentInstallCommand = computed(() => machineStore.installCommands[installDialog.role] || '');
+const installDialogTitle = computed(() => {
+  if (installDialog.role === 'ix') {
+    return 'IX机安装命令';
+  }
+  return installDialog.role === 'egress' ? '出口机安装命令' : '入口机安装命令';
+});
 
 async function loadData(options = {}) {
   if (localDemoMode) {
@@ -203,8 +214,10 @@ async function openInstallDialog(role) {
   installDialog.role = role;
   installDialog.visible = true;
   if (localDemoMode) {
+    const installRole = role === 'ix' ? 'egress' : role;
+    const extra = role === 'ix' ? ' --ix' : '';
     machineStore.installCommands[role] =
-      `bash <(curl -fsSL https://raw.githubusercontent.com/kzlgithub/onlytun/main/scripts/install.sh) --token 'demo-token-${role}' --role ${role} --panel 'http://127.0.0.1:8080'`;
+      `bash <(curl -fsSL https://raw.githubusercontent.com/kzlgithub/onlytun/main/scripts/install.sh) --token 'demo-token-${role}' --role ${installRole} --panel 'http://127.0.0.1:8080'${extra}`;
     return;
   }
   if (!machineStore.installCommands[role]) {
@@ -408,6 +421,7 @@ const MachineGroup = defineComponent({
             'machine-card',
             machine.online ? 'is-online' : 'is-offline',
             updating ? 'is-updating' : '',
+            machine.is_ix ? 'is-ix' : '',
             'is-expanded',
           ],
         },
@@ -445,9 +459,14 @@ const MachineGroup = defineComponent({
                 ]),
               ]),
             ]),
-            h(ElTag, { type: machine.online ? 'success' : 'danger', effect: 'light', round: true }, () =>
-              machine.online ? '在线' : '离线',
-            ),
+            h('div', { class: 'machine-card-tags' }, [
+              machine.is_ix
+                ? h(ElTag, { type: 'warning', effect: 'light', round: true }, () => 'IX出口')
+                : h(ElTag, { type: machine.role === 'egress' ? 'primary' : 'info', effect: 'light', round: true }, () => roleLabel(machine.role)),
+              h(ElTag, { type: machine.online ? 'success' : 'danger', effect: 'light', round: true }, () =>
+                machine.online ? '在线' : '离线',
+              ),
+            ]),
           ]),
 
           updating
@@ -472,6 +491,9 @@ const MachineGroup = defineComponent({
                   progressRow('CPU', Number(machine.cpu_percent || 0), 'cpu'),
                   progressRow('内存', Number(machine.mem_percent || 0), 'mem'),
                   progressRow('硬盘', optionalPercent(machine.disk_percent), 'disk'),
+                  machine.is_ix || machine.tunnel_advertise_addr
+                    ? detailRow('隧道地址', machine.tunnel_advertise_addr || '--')
+                    : null,
                   detailRow('在线时间', machineOnlineTime(machine, nowTick.value)),
                 ]),
               ]),
@@ -706,7 +728,8 @@ function loadDemoMachines() {
     }
     if (
       parsed.some((item) => !item.demo_net || !item.demo_speed || !item.agent_version || !item.agent_latest_version) ||
-      !parsed.some((item) => item.last_update_task?.status === 'running')
+      !parsed.some((item) => item.last_update_task?.status === 'running') ||
+      !parsed.some((item) => item.is_ix)
     ) {
       return buildDemoMachines();
     }
@@ -851,6 +874,8 @@ function buildDemoMachines() {
       name: '美国出口 · LA-Transit',
       role: 'egress',
       ip: '198.51.100.44',
+      is_ix: true,
+      tunnel_advertise_addr: '103.177.162.211:19999',
       online: true,
       os: 'Debian 12',
       agent_version: 'v1.2.4',
@@ -966,6 +991,18 @@ function buildDemoMachines() {
   border-color: rgba(64, 158, 255, 0.3);
 }
 
+.machines-page .install-action-btn.ix {
+  color: #a86808;
+  background: rgba(230, 162, 60, 0.1);
+  border-color: rgba(230, 162, 60, 0.22);
+}
+
+.machines-page .install-action-btn.ix:hover {
+  color: #8a5300;
+  background: rgba(230, 162, 60, 0.16);
+  border-color: rgba(230, 162, 60, 0.32);
+}
+
 .machines-page .toolbar {
   width: 100%;
   justify-content: flex-end;
@@ -1040,6 +1077,13 @@ function buildDemoMachines() {
   border-color: rgba(70, 179, 137, 0.34);
 }
 
+.machines-page .machine-card.is-ix {
+  border-color: rgba(230, 162, 60, 0.36);
+  background:
+    radial-gradient(circle at 100% 0%, rgba(230, 162, 60, 0.12), transparent 36%),
+    linear-gradient(180deg, #ffffff 0%, #fffaf1 100%);
+}
+
 .machines-page .machine-card.is-offline {
   background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
   border-color: rgba(122, 138, 160, 0.2);
@@ -1076,6 +1120,14 @@ function buildDemoMachines() {
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
+}
+
+.machines-page .machine-card-tags {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
 }
 
 .machines-page .machine-title-wrap {

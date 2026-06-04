@@ -3,9 +3,7 @@ package service
 import (
 	"errors"
 	"fmt"
-	"net"
 	"sort"
-	"strconv"
 	"strings"
 
 	paneldb "github.com/onlytun/panel/db"
@@ -230,16 +228,17 @@ func (s *RuleService) EnabledRulesForMachine(machine *paneldb.Machine) ([]AgentR
 		if err := s.db.Take(&egress, "id = ?", rule.EgressMachineID).Error; err != nil {
 			return nil, err
 		}
-		if strings.TrimSpace(egress.IP) == "" {
+		egressAddr := EgressConnectAddr(egress, s.tunnelPort)
+		if egressAddr == "" {
 			return nil, ErrMachineIPMissing
 		}
 
 		configs = append(configs, AgentRuleConfig{
 			RuleID:            rule.ID,
-			ListenAddr:        net.JoinHostPort("0.0.0.0", strconv.Itoa(rule.IngressPort)),
+			ListenAddr:        JoinHostPort("0.0.0.0", rule.IngressPort),
 			Protocol:          rule.Protocol,
-			EgressAddr:        net.JoinHostPort(egress.IP, strconv.Itoa(s.tunnelPort)),
-			TargetAddr:        net.JoinHostPort(rule.TargetAddr, strconv.Itoa(rule.TargetPort)),
+			EgressAddr:        egressAddr,
+			TargetAddr:        JoinHostPort(rule.TargetAddr, rule.TargetPort),
 			TrafficLimitBytes: rule.TrafficLimitBytes,
 		})
 	}

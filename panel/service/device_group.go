@@ -43,20 +43,22 @@ type MachineGroupView struct {
 }
 
 type MachineGroupMemberView struct {
-	ID             string    `json:"id"`
-	Name           string    `json:"name"`
-	Role           string    `json:"role"`
-	GroupID        string    `json:"group_id"`
-	IP             string    `json:"ip"`
-	Online         bool      `json:"online"`
-	OS             string    `json:"os"`
-	AgentVersion   string    `json:"agent_version"`
-	CPUPercent     float64   `json:"cpu_percent"`
-	MemPercent     float64   `json:"mem_percent"`
-	DiskPercent    float64   `json:"disk_percent"`
-	UptimeSeconds  uint64    `json:"uptime_seconds"`
-	LastHeartbeat  time.Time `json:"last_heartbeat"`
-	OnlineSince    time.Time `json:"online_since"`
+	ID                  string    `json:"id"`
+	Name                string    `json:"name"`
+	Role                string    `json:"role"`
+	GroupID             string    `json:"group_id"`
+	IP                  string    `json:"ip"`
+	IsIX                bool      `json:"is_ix"`
+	TunnelAdvertiseAddr string    `json:"tunnel_advertise_addr"`
+	Online              bool      `json:"online"`
+	OS                  string    `json:"os"`
+	AgentVersion        string    `json:"agent_version"`
+	CPUPercent          float64   `json:"cpu_percent"`
+	MemPercent          float64   `json:"mem_percent"`
+	DiskPercent         float64   `json:"disk_percent"`
+	UptimeSeconds       uint64    `json:"uptime_seconds"`
+	LastHeartbeat       time.Time `json:"last_heartbeat"`
+	OnlineSince         time.Time `json:"online_since"`
 }
 
 type DeviceGroupRuleInput struct {
@@ -500,7 +502,7 @@ func (s *GroupService) findGroupRuleConflict(ruleID, ingressGroupID string, ingr
 func (s *GroupService) onlineEgressMachines(groupID string) ([]paneldb.Machine, error) {
 	var machines []paneldb.Machine
 	if err := s.db.
-		Where("group_id = ? AND role = ? AND online = ? AND ip <> ?", groupID, "egress", true, "").
+		Where("group_id = ? AND role = ? AND online = ? AND (ip <> ? OR tunnel_advertise_addr <> ?)", groupID, "egress", true, "", "").
 		Order("id ASC").
 		Find(&machines).Error; err != nil {
 		return nil, err
@@ -541,20 +543,22 @@ func buildMachineGroupMemberViews(machines []paneldb.Machine) []MachineGroupMemb
 	members := make([]MachineGroupMemberView, 0, len(machines))
 	for _, machine := range machines {
 		members = append(members, MachineGroupMemberView{
-			ID:             machine.ID,
-			Name:           machine.Name,
-			Role:           machine.Role,
-			GroupID:        machine.GroupID,
-			IP:             machine.IP,
-			Online:         machine.Online,
-			OS:             machine.OS,
-			AgentVersion:   machine.AgentVersion,
-			CPUPercent:     machine.CPUPercent,
-			MemPercent:     machine.MemPercent,
-			DiskPercent:    machine.DiskPercent,
-			UptimeSeconds:  machine.UptimeSeconds,
-			LastHeartbeat:  machine.LastHeartbeat,
-			OnlineSince:    machine.OnlineSince,
+			ID:                  machine.ID,
+			Name:                machine.Name,
+			Role:                machine.Role,
+			GroupID:             machine.GroupID,
+			IP:                  machine.IP,
+			IsIX:                machine.IsIX,
+			TunnelAdvertiseAddr: machine.TunnelAdvertiseAddr,
+			Online:              machine.Online,
+			OS:                  machine.OS,
+			AgentVersion:        machine.AgentVersion,
+			CPUPercent:          machine.CPUPercent,
+			MemPercent:          machine.MemPercent,
+			DiskPercent:         machine.DiskPercent,
+			UptimeSeconds:       machine.UptimeSeconds,
+			LastHeartbeat:       machine.LastHeartbeat,
+			OnlineSince:         machine.OnlineSince,
 		})
 	}
 	return members
@@ -583,7 +587,7 @@ func groupRuleAgentConfig(rule paneldb.DeviceGroupRule, egress paneldb.Machine, 
 		RuleID:            rule.ID,
 		ListenAddr:        JoinHostPort("0.0.0.0", rule.IngressPort),
 		Protocol:          rule.Protocol,
-		EgressAddr:        JoinHostPort(egress.IP, tunnelPort),
+		EgressAddr:        EgressConnectAddr(egress, tunnelPort),
 		TargetAddr:        JoinHostPort(rule.TargetAddr, rule.TargetPort),
 		TrafficLimitBytes: rule.TrafficLimitBytes,
 	}

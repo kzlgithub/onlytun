@@ -16,25 +16,27 @@ import (
 const SharedPSKSettingKey = "shared_psk"
 
 type Machine struct {
-	ID            string    `gorm:"primaryKey;size:36" json:"id"`
-	Name          string    `gorm:"size:128;not null" json:"name"`
-	Role          string    `gorm:"size:16;not null;index" json:"role"`
-	GroupID       string    `gorm:"size:36;index" json:"group_id"`
-	IP            string    `gorm:"size:64" json:"ip"`
-	Token         string    `gorm:"size:128;not null;uniqueIndex" json:"token"`
-	Online        bool      `gorm:"not null;default:false" json:"online"`
-	OS            string    `gorm:"size:64" json:"os"`
-	AgentVersion  string    `gorm:"size:64" json:"agent_version"`
-	CPUPercent    float64   `gorm:"not null;default:0" json:"cpu_percent"`
-	MemPercent    float64   `gorm:"not null;default:0" json:"mem_percent"`
-	DiskPercent   float64   `gorm:"not null;default:0" json:"disk_percent"`
-	UptimeSeconds uint64    `gorm:"not null;default:0" json:"uptime_seconds"`
-	NetBytesUp    uint64    `gorm:"not null;default:0" json:"net_bytes_up"`
-	NetBytesDown  uint64    `gorm:"not null;default:0" json:"net_bytes_down"`
-	LastHeartbeat time.Time `gorm:"index" json:"last_heartbeat"`
-	OnlineSince   time.Time `json:"online_since"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	ID                  string    `gorm:"primaryKey;size:36" json:"id"`
+	Name                string    `gorm:"size:128;not null" json:"name"`
+	Role                string    `gorm:"size:16;not null;index" json:"role"`
+	GroupID             string    `gorm:"size:36;index" json:"group_id"`
+	IP                  string    `gorm:"size:64" json:"ip"`
+	IsIX                bool      `gorm:"not null;default:false" json:"is_ix"`
+	TunnelAdvertiseAddr string    `gorm:"size:255" json:"tunnel_advertise_addr"`
+	Token               string    `gorm:"size:128;not null;uniqueIndex" json:"token"`
+	Online              bool      `gorm:"not null;default:false" json:"online"`
+	OS                  string    `gorm:"size:64" json:"os"`
+	AgentVersion        string    `gorm:"size:64" json:"agent_version"`
+	CPUPercent          float64   `gorm:"not null;default:0" json:"cpu_percent"`
+	MemPercent          float64   `gorm:"not null;default:0" json:"mem_percent"`
+	DiskPercent         float64   `gorm:"not null;default:0" json:"disk_percent"`
+	UptimeSeconds       uint64    `gorm:"not null;default:0" json:"uptime_seconds"`
+	NetBytesUp          uint64    `gorm:"not null;default:0" json:"net_bytes_up"`
+	NetBytesDown        uint64    `gorm:"not null;default:0" json:"net_bytes_down"`
+	LastHeartbeat       time.Time `gorm:"index" json:"last_heartbeat"`
+	OnlineSince         time.Time `json:"online_since"`
+	CreatedAt           time.Time `json:"created_at"`
+	UpdatedAt           time.Time `json:"updated_at"`
 }
 
 type MachineGroup struct {

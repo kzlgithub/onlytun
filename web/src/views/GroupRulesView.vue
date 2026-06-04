@@ -69,7 +69,7 @@
                     <span class="member-status-dot" :class="{ online: machine.online }"></span>
                     <div class="member-preview-text">
                       <strong>{{ machine.name || machine.ip || machine.id }}</strong>
-                      <span>{{ machine.ip || '未上报 IP' }} · {{ machine.agent_version || 'unknown' }}</span>
+                      <span>{{ memberSummary(machine) }}</span>
                     </div>
                   </div>
                   <div v-if="!(group.members || []).length" class="member-preview-empty">暂无成员，点击“成员”添加入口机</div>
@@ -104,7 +104,7 @@
                     <span class="member-status-dot" :class="{ online: machine.online }"></span>
                     <div class="member-preview-text">
                       <strong>{{ machine.name || machine.ip || machine.id }}</strong>
-                      <span>{{ machine.ip || '未上报 IP' }} · {{ machine.agent_version || 'unknown' }}</span>
+                      <span>{{ memberSummary(machine) }}</span>
                     </div>
                   </div>
                   <div v-if="!(group.members || []).length" class="member-preview-empty">暂无成员，点击“成员”添加出口机</div>
@@ -376,6 +376,19 @@ function filterGroups(groups) {
   const q = keyword.value.trim().toLowerCase();
   if (!q) return groups;
   return groups.filter((group) => [group.name, group.remark, group.role].filter(Boolean).join(' ').toLowerCase().includes(q));
+}
+
+function memberSummary(machine) {
+  const parts = [];
+  if (machine.is_ix) {
+    parts.push('IX');
+  }
+  parts.push(machine.ip || '未上报 IP');
+  if (machine.tunnel_advertise_addr) {
+    parts.push(machine.tunnel_advertise_addr);
+  }
+  parts.push(machine.agent_version || 'unknown');
+  return parts.join(' · ');
 }
 
 async function loadData(options = {}) {

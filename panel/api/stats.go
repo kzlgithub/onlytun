@@ -10,16 +10,18 @@ import (
 )
 
 type heartbeatRequest struct {
-	MachineID    string  `json:"machine_id"`
-	Role         string  `json:"role"`
-	IP           string  `json:"ip"`
-	AgentVersion string  `json:"agent_version"`
-	CPUPercent   float64 `json:"cpu_percent"`
-	MemPercent   float64 `json:"mem_percent"`
-	DiskPercent  float64 `json:"disk_percent"`
-	UptimeSec    uint64  `json:"uptime_seconds"`
-	NetBytesUp   uint64  `json:"net_bytes_up"`
-	NetBytesDown uint64  `json:"net_bytes_down"`
+	MachineID           string  `json:"machine_id"`
+	Role                string  `json:"role"`
+	IP                  string  `json:"ip"`
+	AgentVersion        string  `json:"agent_version"`
+	IsIX                *bool   `json:"is_ix"`
+	TunnelAdvertiseAddr *string `json:"tunnel_advertise_addr"`
+	CPUPercent          float64 `json:"cpu_percent"`
+	MemPercent          float64 `json:"mem_percent"`
+	DiskPercent         float64 `json:"disk_percent"`
+	UptimeSec           uint64  `json:"uptime_seconds"`
+	NetBytesUp          uint64  `json:"net_bytes_up"`
+	NetBytesDown        uint64  `json:"net_bytes_down"`
 }
 
 type statsRequest struct {
@@ -38,10 +40,12 @@ type updateClaimRequest struct {
 }
 
 type registerRequest struct {
-	Name string `json:"name"`
-	Role string `json:"role"`
-	IP   string `json:"ip"`
-	OS   string `json:"os"`
+	Name                string `json:"name"`
+	Role                string `json:"role"`
+	IP                  string `json:"ip"`
+	OS                  string `json:"os"`
+	IsIX                bool   `json:"is_ix"`
+	TunnelAdvertiseAddr string `json:"tunnel_advertise_addr"`
 }
 
 func (h *Handler) GetRuleStats(c *gin.Context) {
@@ -75,9 +79,9 @@ func (h *Handler) AgentHeartbeat(c *gin.Context) {
 		ip = ClientIP(c)
 	}
 
-	if err := h.Machines.UpdateHeartbeat(machine, req.Role, ip, req.AgentVersion, req.CPUPercent, req.MemPercent, req.DiskPercent, req.UptimeSec, req.NetBytesUp, req.NetBytesDown); err != nil {
+	if err := h.Machines.UpdateHeartbeat(machine, req.Role, ip, req.AgentVersion, req.IsIX, req.TunnelAdvertiseAddr, req.CPUPercent, req.MemPercent, req.DiskPercent, req.UptimeSec, req.NetBytesUp, req.NetBytesDown); err != nil {
 		status := http.StatusInternalServerError
-		if errors.Is(err, service.ErrInvalidRole) {
+		if errors.Is(err, service.ErrInvalidRole) || errors.Is(err, service.ErrInvalidTunnelAddr) {
 			status = http.StatusBadRequest
 		}
 		c.JSON(status, gin.H{"error": err.Error()})
@@ -205,9 +209,11 @@ func (h *Handler) AgentRegister(c *gin.Context) {
 	}
 
 	machine, psk, err := h.Machines.RegisterMachine(token, service.RegisterMachineInput{
-		Name: req.Name,
-		Role: req.Role,
-		OS:   req.OS,
+		Name:                req.Name,
+		Role:                req.Role,
+		OS:                  req.OS,
+		IsIX:                req.IsIX,
+		TunnelAdvertiseAddr: req.TunnelAdvertiseAddr,
 	}, ip)
 	if err != nil {
 		status := http.StatusBadRequest
@@ -216,7 +222,8 @@ func (h *Handler) AgentRegister(c *gin.Context) {
 			errors.Is(err, service.ErrInstallTokenExpired),
 			errors.Is(err, service.ErrInstallTokenUsed):
 			status = http.StatusUnauthorized
-		case errors.Is(err, service.ErrInvalidRole):
+		case errors.Is(err, service.ErrInvalidRole),
+			errors.Is(err, service.ErrInvalidTunnelAddr):
 			status = http.StatusBadRequest
 		default:
 			status = http.StatusInternalServerError

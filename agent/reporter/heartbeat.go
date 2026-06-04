@@ -23,16 +23,18 @@ import (
 const reportInterval = 30 * time.Second
 
 type heartbeatPayload struct {
-	MachineID    string  `json:"machine_id"`
-	Role         string  `json:"role"`
-	IP           string  `json:"ip"`
-	AgentVersion string  `json:"agent_version"`
-	CPUPercent   float64 `json:"cpu_percent"`
-	MemPercent   float64 `json:"mem_percent"`
-	DiskPercent  float64 `json:"disk_percent"`
-	UptimeSec    uint64  `json:"uptime_seconds"`
-	NetBytesUp   uint64  `json:"net_bytes_up"`
-	NetBytesDown uint64  `json:"net_bytes_down"`
+	MachineID           string  `json:"machine_id"`
+	Role                string  `json:"role"`
+	IP                  string  `json:"ip"`
+	AgentVersion        string  `json:"agent_version"`
+	IsIX                bool    `json:"is_ix"`
+	TunnelAdvertiseAddr string  `json:"tunnel_advertise_addr"`
+	CPUPercent          float64 `json:"cpu_percent"`
+	MemPercent          float64 `json:"mem_percent"`
+	DiskPercent         float64 `json:"disk_percent"`
+	UptimeSec           uint64  `json:"uptime_seconds"`
+	NetBytesUp          uint64  `json:"net_bytes_up"`
+	NetBytesDown        uint64  `json:"net_bytes_down"`
 }
 
 // Reporter 负责向面板上报心跳和统计数据。
@@ -44,9 +46,11 @@ type Reporter struct {
 	version   string
 	client    *http.Client
 
-	mu      sync.RWMutex
-	sources map[string]func() Stats
-	last    map[string]Stats
+	mu                  sync.RWMutex
+	isIX                bool
+	tunnelAdvertiseAddr string
+	sources             map[string]func() Stats
+	last                map[string]Stats
 }
 
 // NewReporter 创建 Reporter。
@@ -73,6 +77,14 @@ func NewReporter(panelURL, machineID, role, token string, version ...string) *Re
 func (r *Reporter) Start(ctx context.Context) {
 	go r.runHeartbeatLoop(ctx)
 	go r.runStatsLoop(ctx)
+}
+
+func (r *Reporter) SetMachineMeta(isIX bool, tunnelAdvertiseAddr string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.isIX = isIX
+	r.tunnelAdvertiseAddr = strings.TrimSpace(tunnelAdvertiseAddr)
 }
 
 func (r *Reporter) runHeartbeatLoop(ctx context.Context) {
@@ -116,18 +128,24 @@ func (r *Reporter) sendHeartbeat(ctx context.Context) {
 	}
 
 	netBytesUp, netBytesDown := sampleNetBytes()
+	r.mu.RLock()
+	isIX := r.isIX
+	tunnelAdvertiseAddr := r.tunnelAdvertiseAddr
+	r.mu.RUnlock()
 
 	payload := heartbeatPayload{
-		MachineID:    r.machineID,
-		Role:         r.role,
-		IP:           detectPublicIP(),
-		AgentVersion: r.version,
-		CPUPercent:   firstCPUPercent(cpuPercent),
-		MemPercent:   memStats.UsedPercent,
-		DiskPercent:  diskPercent,
-		UptimeSec:    uptimeSec,
-		NetBytesUp:   netBytesUp,
-		NetBytesDown: netBytesDown,
+		MachineID:           r.machineID,
+		Role:                r.role,
+		IP:                  detectPublicIP(),
+		AgentVersion:        r.version,
+		IsIX:                isIX,
+		TunnelAdvertiseAddr: tunnelAdvertiseAddr,
+		CPUPercent:          firstCPUPercent(cpuPercent),
+		MemPercent:          memStats.UsedPercent,
+		DiskPercent:         diskPercent,
+		UptimeSec:           uptimeSec,
+		NetBytesUp:          netBytesUp,
+		NetBytesDown:        netBytesDown,
 	}
 
 	if err := r.postJSON(ctx, "/api/agent/heartbeat", payload); err != nil {

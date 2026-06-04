@@ -11,7 +11,9 @@ import (
 )
 
 type updateMachineRequest struct {
-	Name string `json:"name"`
+	Name                string  `json:"name"`
+	IsIX                *bool   `json:"is_ix"`
+	TunnelAdvertiseAddr *string `json:"tunnel_advertise_addr"`
 }
 
 func (h *Handler) ListMachines(c *gin.Context) {
@@ -42,11 +44,16 @@ func (h *Handler) UpdateMachine(c *gin.Context) {
 		return
 	}
 
-	machine, err := h.Machines.UpdateMachineName(c.Param("id"), req.Name)
+	machine, err := h.Machines.UpdateMachine(c.Param("id"), service.MachineUpdateInput{
+		Name:                req.Name,
+		IsIX:                req.IsIX,
+		TunnelAdvertiseAddr: req.TunnelAdvertiseAddr,
+	})
 	if err != nil {
 		status := http.StatusInternalServerError
 		switch {
-		case errors.Is(err, service.ErrMachineNameRequired):
+		case errors.Is(err, service.ErrMachineNameRequired),
+			errors.Is(err, service.ErrInvalidTunnelAddr):
 			status = http.StatusBadRequest
 		case errors.Is(err, service.ErrMachineNotFound):
 			status = http.StatusNotFound

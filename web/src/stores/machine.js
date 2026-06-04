@@ -27,6 +27,7 @@ export const useMachineStore = defineStore('machines', {
     installCommands: {
       ingress: '',
       egress: '',
+      ix: '',
     },
     loading: false,
     commandLoading: false,
@@ -89,6 +90,7 @@ export const useMachineStore = defineStore('machines', {
         this.installCommands = {
           ingress: data.ingress_command || '',
           egress: data.egress_command || '',
+          ix: data.ix_command || '',
         };
         return this.installCommands;
       } finally {

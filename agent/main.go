@@ -112,6 +112,7 @@ func main() {
 		},
 		ingress: make(map[string]*ingressRuntime),
 	}
+	runtime.reporter.SetMachineMeta(cfg.IsIX, cfg.TunnelAdvertiseAddr)
 
 	if err := runtime.startInitial(); err != nil {
 		logErrorf("startup failed: %v", err)

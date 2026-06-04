@@ -51,6 +51,57 @@ func TestEnabledRulesForMachineExpandsDeviceGroupRule(t *testing.T) {
 	}
 }
 
+func TestEnabledDeviceGroupRulesUseIXAdvertiseAddress(t *testing.T) {
+	gdb, err := paneldb.OpenDatabase(filepath.Join(t.TempDir(), "panel.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+
+	ingressGroup := paneldb.MachineGroup{ID: "ingress-group", Name: "Ingress Group", Role: "ingress"}
+	egressGroup := paneldb.MachineGroup{ID: "egress-group", Name: "Egress Group", Role: "egress"}
+	ingress := paneldb.Machine{ID: "ingress-1", Name: "Ingress", Role: "ingress", GroupID: ingressGroup.ID, Token: "token-ingress"}
+	egress := paneldb.Machine{
+		ID:                  "egress-ix",
+		Name:                "IX",
+		Role:                "egress",
+		GroupID:             egressGroup.ID,
+		Token:               "token-egress",
+		IP:                  "89.43.141.163",
+		IsIX:                true,
+		TunnelAdvertiseAddr: "103.177.162.211:19999",
+		Online:              true,
+	}
+	rule := paneldb.DeviceGroupRule{
+		ID:             "group-rule",
+		Name:           "Group Rule",
+		IngressGroupID: ingressGroup.ID,
+		EgressGroupID:  egressGroup.ID,
+		IngressPort:    41001,
+		TargetAddr:     "example.com",
+		TargetPort:     443,
+		Protocol:       "tcp",
+		Enabled:        true,
+	}
+
+	for _, record := range []any{&ingressGroup, &egressGroup, &ingress, &egress, &rule} {
+		if err := gdb.Create(record).Error; err != nil {
+			t.Fatalf("create record: %v", err)
+		}
+	}
+	enableDeviceGroupMode(t, gdb)
+
+	configs, err := NewRuleService(gdb, 19999).EnabledRulesForMachine(&ingress)
+	if err != nil {
+		t.Fatalf("enabled rules: %v", err)
+	}
+	if len(configs) != 1 {
+		t.Fatalf("expected one config, got %+v", configs)
+	}
+	if configs[0].EgressAddr != "103.177.162.211:19999" {
+		t.Fatalf("expected IX advertise address, got %q", configs[0].EgressAddr)
+	}
+}
+
 func TestDeviceGroupRuleSkipsIngressWhenSingleRuleOwnsPort(t *testing.T) {
 	gdb, err := paneldb.OpenDatabase(filepath.Join(t.TempDir(), "panel.db"))
 	if err != nil {

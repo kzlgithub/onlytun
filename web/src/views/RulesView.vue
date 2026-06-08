@@ -52,27 +52,36 @@
         row-key="id"
         @selection-change="handleSelectionChange"
       >
-        <el-table-column type="selection" width="46" />
-        <el-table-column label="规则名称" min-width="180">
+        <el-table-column type="selection" width="38" />
+        <el-table-column label="规则名称" min-width="145">
           <template #default="{ row }">
             <router-link :to="`/rules/${row.id}/stats`" class="rule-link">
               {{ row.name }}
             </router-link>
           </template>
         </el-table-column>
-        <el-table-column label="路径" min-width="330">
+        <el-table-column label="入口" min-width="280">
           <template #default="{ row }">
-            <div class="path-line">
-              {{ buildRoutePath(row) }}
+            <div class="route-endpoint">
+              {{ buildIngressEndpoint(row) }}
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="协议" width="110">
+        <el-table-column label="出口" min-width="312">
+          <template #default="{ row }">
+            <div class="route-flow">
+              <span class="route-flow-node">{{ buildEgressEndpoint(row) }}</span>
+              <span class="route-flow-arrow">--></span>
+              <span class="route-flow-target">{{ row.target_addr }}:{{ row.target_port }}</span>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="协议" width="68" align="center">
           <template #default="{ row }">
             <el-tag effect="light" round>{{ protocolLabel(row.protocol) }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="状态" width="100">
+        <el-table-column label="状态" width="70" align="center">
           <template #default="{ row }">
             <el-switch
               :model-value="row.enabled"
@@ -84,26 +93,23 @@
             />
           </template>
         </el-table-column>
-        <el-table-column label="活跃连接数" width="120">
-          <template #default="{ row }">
-            {{ row.realtime_stat?.peak_conns || 0 }}
-          </template>
-        </el-table-column>
-        <el-table-column label="流量上限" width="150">
+        <el-table-column label="流量上限" width="90" align="center">
           <template #default="{ row }">
             <el-tag v-if="row.limit_exceeded" type="danger" effect="light" round>已超限</el-tag>
             <span v-else>{{ row.traffic_limit_bytes > 0 ? formatBytes(row.traffic_limit_bytes) : '无限制' }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="今日流量" width="140">
+        <el-table-column label="今日流量" width="88" align="center">
           <template #default="{ row }">
             {{ formatBytes(ruleStore.dayTotals[row.id] || 0) }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="150" fixed="right">
+        <el-table-column label="操作" width="112" fixed="right" align="center">
           <template #default="{ row }">
-            <el-button type="primary" link :disabled="deviceGroupMode" @click="openEditDialog(row)">编辑</el-button>
-            <el-button type="danger" link :disabled="deviceGroupMode" @click="deleteRule(row)">删除</el-button>
+            <div class="rule-actions">
+              <el-button type="primary" link :disabled="deviceGroupMode" @click="openEditDialog(row)">编辑</el-button>
+              <el-button type="danger" link :disabled="deviceGroupMode" @click="deleteRule(row)">删除</el-button>
+            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -241,6 +247,22 @@ function buildRoutePath(rule) {
   const ingressName = ingress?.name || ingress?.ip || '入口机';
   const egressName = egress?.name || egress?.ip || '出口机';
   return `${ingressName}:${rule.ingress_port} → ${egressName} → ${rule.target_addr}:${rule.target_port}`;
+}
+
+function buildIngressEndpoint(rule) {
+  const ingress = machineStore.machineMap[rule.ingress_machine_id];
+  const ingressName = ingress?.name || ingress?.ip || '入口机';
+  const ingressAddr = ingress?.ip ? `${ingress.ip}:${rule.ingress_port}` : `:${rule.ingress_port}`;
+
+  return `${ingressName}(${ingressAddr})`;
+}
+
+function buildEgressEndpoint(rule) {
+  const egress = machineStore.machineMap[rule.egress_machine_id];
+  const egressName = egress?.name || egress?.ip || '出口机';
+  const egressAddr = egress?.ip || '未上报接入地址';
+
+  return `${egressName}(${egressAddr})`;
 }
 
 function ruleRowClassName() {
@@ -692,7 +714,8 @@ onBeforeUnmount(() => {
 }
 
 :deep(.disabled-rule-row .rule-link),
-:deep(.disabled-rule-row .path-line),
+:deep(.disabled-rule-row .route-endpoint),
+:deep(.disabled-rule-row .route-flow),
 :deep(.disabled-rule-row .el-tag),
 :deep(.disabled-rule-row .el-switch) {
   color: #64748b !important;
@@ -703,9 +726,61 @@ onBeforeUnmount(() => {
   font-weight: 600;
 }
 
-.path-line {
+.route-endpoint,
+.route-flow {
   color: #3c4a61;
-  line-height: 1.6;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.route-endpoint {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.route-flow {
+  align-items: center;
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+  padding: 2px 0;
+}
+
+.route-flow-node,
+.route-flow-target {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.route-flow-node {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.route-flow-target {
+  flex: 0 1 180px;
+  max-width: 180px;
+}
+
+.route-flow-arrow {
+  color: #94a3b8;
+  flex: 0 0 auto;
+  font-size: 11px;
+  letter-spacing: -1px;
+}
+
+.rule-actions {
+  align-items: center;
+  display: inline-flex;
+  gap: 10px;
+  justify-content: center;
+  white-space: nowrap;
+}
+
+.rule-actions :deep(.el-button + .el-button) {
+  margin-left: 0;
 }
 
 .batch-tip {

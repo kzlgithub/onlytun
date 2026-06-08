@@ -42,7 +42,7 @@ func TestReporterSendStatsPostsRegisteredSources(t *testing.T) {
 	}))
 	defer server.Close()
 
-	r := NewReporter(server.URL, "machine-1", "ingress", "token-1")
+	r := NewReporter(server.URL, "machine-1", "ingress", "token-1", "203.0.113.10")
 	r.client = server.Client()
 	r.RegisterStatsSource("rule-b", func() Stats {
 		return tunnel.Stats{BytesUp: 30, BytesDown: 40, ActiveConns: 2}
@@ -85,7 +85,7 @@ func TestReporterSendStatsPostsRegisteredSources(t *testing.T) {
 
 func TestReporterCollectStatsReportsDeltas(t *testing.T) {
 	var up, down int64 = 100, 250
-	r := NewReporter("http://127.0.0.1", "machine-1", "ingress", "token-1")
+	r := NewReporter("http://127.0.0.1", "machine-1", "ingress", "token-1", "203.0.113.10")
 	r.RegisterStatsSource("rule-1", func() Stats {
 		return tunnel.Stats{BytesUp: up, BytesDown: down, ActiveConns: 3}
 	})
@@ -146,7 +146,7 @@ func TestReporterSendHeartbeatPostsPayload(t *testing.T) {
 	}))
 	defer server.Close()
 
-	r := NewReporter(server.URL, "machine-2", "egress", "token-2")
+	r := NewReporter(server.URL, "machine-2", "egress", "token-2", "node.example.com")
 	r.client = server.Client()
 	r.sendHeartbeat(context.Background())
 
@@ -172,6 +172,9 @@ func TestReporterSendHeartbeatPostsPayload(t *testing.T) {
 	if payload.Role != "egress" {
 		t.Fatalf("unexpected role %q", payload.Role)
 	}
+	if payload.IP != "node.example.com" {
+		t.Fatalf("expected configured access address, got %q", payload.IP)
+	}
 	if payload.CPUPercent < 0 {
 		t.Fatalf("unexpected cpu percent %f", payload.CPUPercent)
 	}
@@ -186,7 +189,7 @@ func TestReporterPostJSONReturnsErrorOnBadStatus(t *testing.T) {
 	}))
 	defer server.Close()
 
-	r := NewReporter(server.URL, "machine-3", "ingress", "token-3")
+	r := NewReporter(server.URL, "machine-3", "ingress", "token-3", "203.0.113.10")
 	r.client = server.Client()
 
 	err := r.postJSON(context.Background(), "/api/agent/stats", statsPayload{

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -39,12 +38,13 @@ type heartbeatPayload struct {
 
 // Reporter 负责向面板上报心跳和统计数据。
 type Reporter struct {
-	panelURL  string
-	machineID string
-	role      string
-	token     string
-	version   string
-	client    *http.Client
+	panelURL   string
+	machineID  string
+	role       string
+	token      string
+	accessAddr string
+	version    string
+	client     *http.Client
 
 	mu                  sync.RWMutex
 	isIX                bool
@@ -54,17 +54,18 @@ type Reporter struct {
 }
 
 // NewReporter 创建 Reporter。
-func NewReporter(panelURL, machineID, role, token string, version ...string) *Reporter {
+func NewReporter(panelURL, machineID, role, token, accessAddr string, version ...string) *Reporter {
 	reportVersion := ""
 	if len(version) > 0 {
 		reportVersion = version[0]
 	}
 	return &Reporter{
-		panelURL:  strings.TrimRight(panelURL, "/"),
-		machineID: machineID,
-		role:      role,
-		token:     token,
-		version:   strings.TrimSpace(reportVersion),
+		panelURL:   strings.TrimRight(panelURL, "/"),
+		machineID:  machineID,
+		role:       role,
+		token:      token,
+		accessAddr: strings.TrimSpace(accessAddr),
+		version:    strings.TrimSpace(reportVersion),
 		client: &http.Client{
 			Timeout: 10 * time.Second,
 		},
@@ -136,7 +137,7 @@ func (r *Reporter) sendHeartbeat(ctx context.Context) {
 	payload := heartbeatPayload{
 		MachineID:           r.machineID,
 		Role:                r.role,
-		IP:                  detectPublicIP(),
+		IP:                  r.accessAddr,
 		AgentVersion:        r.version,
 		IsIX:                isIX,
 		TunnelAdvertiseAddr: tunnelAdvertiseAddr,
@@ -168,54 +169,6 @@ func sampleNetBytes() (uint64, uint64) {
 		bytesDown += item.BytesRecv
 	}
 	return bytesUp, bytesDown
-}
-
-func detectPublicIP() string {
-	client := http.Client{Timeout: 3 * time.Second}
-	services := []string{
-		"https://api.ipify.org",
-		"https://ifconfig.me/ip",
-		"https://icanhazip.com",
-		"https://ident.me",
-	}
-
-	for _, service := range services {
-		resp, err := client.Get(service)
-		if err != nil {
-			continue
-		}
-		candidate := func() string {
-			defer resp.Body.Close()
-			if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
-				body, readErr := io.ReadAll(io.LimitReader(resp.Body, 128))
-				if readErr == nil {
-					ip := strings.TrimSpace(string(body))
-					if net.ParseIP(ip) != nil {
-						return ip
-					}
-				}
-			}
-			return ""
-		}()
-		if candidate != "" {
-			return candidate
-		}
-	}
-
-	return detectOutboundIP()
-}
-
-func detectOutboundIP() string {
-	conn, err := net.DialTimeout("udp", "8.8.8.8:80", 2*time.Second)
-	if err != nil {
-		return ""
-	}
-	defer conn.Close()
-
-	if addr, ok := conn.LocalAddr().(*net.UDPAddr); ok {
-		return addr.IP.String()
-	}
-	return ""
 }
 
 func firstCPUPercent(values []float64) float64 {

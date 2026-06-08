@@ -19,16 +19,17 @@ const (
 )
 
 var (
-	ErrInstallTokenNotFound = errors.New("service: install token not found")
-	ErrInstallTokenExpired  = errors.New("service: install token expired")
-	ErrInstallTokenUsed     = errors.New("service: install token already used")
-	ErrMachineNotFound      = errors.New("service: machine not found")
-	ErrMachineHasRules      = errors.New("service: machine has enabled rules")
-	ErrMachineNameRequired  = errors.New("service: machine name is required")
-	ErrMachineOffline       = errors.New("service: machine is offline")
-	ErrInvalidRole          = errors.New("service: invalid role")
-	ErrInvalidTunnelAddr    = errors.New("service: invalid tunnel advertise address")
-	ErrUpdateTaskNotFound   = errors.New("service: update task not found")
+	ErrInstallTokenNotFound      = errors.New("service: install token not found")
+	ErrInstallTokenExpired       = errors.New("service: install token expired")
+	ErrInstallTokenUsed          = errors.New("service: install token already used")
+	ErrMachineNotFound           = errors.New("service: machine not found")
+	ErrMachineHasRules           = errors.New("service: machine has enabled rules")
+	ErrMachineNameRequired       = errors.New("service: machine name is required")
+	ErrMachineAccessAddrRequired = errors.New("service: machine access address is required")
+	ErrMachineOffline            = errors.New("service: machine is offline")
+	ErrInvalidRole               = errors.New("service: invalid role")
+	ErrInvalidTunnelAddr         = errors.New("service: invalid tunnel advertise address")
+	ErrUpdateTaskNotFound        = errors.New("service: update task not found")
 )
 
 type MachineService struct {
@@ -315,12 +316,13 @@ func (s *MachineService) RegisterMachine(token string, input RegisterMachineInpu
 	}
 
 	isIX := input.IsIX && role == "egress"
+	accessAddr := strings.TrimSpace(ip)
+	if accessAddr == "" || strings.Contains(strings.ToUpper(accessAddr), "ACCESS_ADDR") {
+		return nil, "", ErrMachineAccessAddrRequired
+	}
 	advertiseAddr, err := normalizeTunnelAdvertiseAddr(input.TunnelAdvertiseAddr)
 	if err != nil {
 		return nil, "", err
-	}
-	if isIX && advertiseAddr == "" {
-		return nil, "", ErrInvalidTunnelAddr
 	}
 	if role != "egress" && advertiseAddr != "" {
 		return nil, "", ErrInvalidTunnelAddr
@@ -353,7 +355,7 @@ func (s *MachineService) RegisterMachine(token string, input RegisterMachineInpu
 		record := &paneldb.Machine{
 			Name:                name,
 			Role:                role,
-			IP:                  strings.TrimSpace(ip),
+			IP:                  accessAddr,
 			IsIX:                isIX,
 			TunnelAdvertiseAddr: advertiseAddr,
 			Token:               token,
@@ -421,9 +423,6 @@ func (s *MachineService) UpdateMachine(id string, input MachineUpdateInput) (*pa
 		nextAdvertiseAddr = advertiseAddr
 		updates["tunnel_advertise_addr"] = advertiseAddr
 	}
-	if nextIsIX && nextAdvertiseAddr == "" {
-		return nil, ErrInvalidTunnelAddr
-	}
 	if machine.Role != "egress" && (nextIsIX || nextAdvertiseAddr != "") {
 		return nil, ErrInvalidTunnelAddr
 	}
@@ -487,9 +486,6 @@ func (s *MachineService) UpdateHeartbeat(machine *paneldb.Machine, role, ip, age
 		}
 		nextAdvertiseAddr = advertiseAddr
 		updates["tunnel_advertise_addr"] = advertiseAddr
-	}
-	if nextIsIX && nextAdvertiseAddr == "" {
-		return ErrInvalidTunnelAddr
 	}
 	if machine.Role != "egress" && (nextIsIX || nextAdvertiseAddr != "") {
 		return ErrInvalidTunnelAddr
@@ -583,7 +579,7 @@ func buildInstallCommand(baseURL, role, token string, extraArgs []string) string
 	escapedBaseURL := shellQuote(baseURL)
 	escapedToken := shellQuote(token)
 	command := fmt.Sprintf(
-		"bash <(curl -fsSL https://raw.githubusercontent.com/kzlgithub/onlytun/main/scripts/install.sh) --token %s --role %s --panel %s",
+		"bash <(curl -fsSL https://raw.githubusercontent.com/kzlgithub/onlytun/main/scripts/install.sh) --token %s --role %s --panel %s --access-addr YOUR_ACCESS_ADDR",
 		escapedToken,
 		role,
 		escapedBaseURL,

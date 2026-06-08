@@ -92,6 +92,11 @@ func main() {
 		logErrorf("load config %q failed: %v", *configPath, err)
 		os.Exit(1)
 	}
+	cfg.AccessAddr = strings.TrimSpace(cfg.AccessAddr)
+	if cfg.AccessAddr == "" || strings.Contains(strings.ToUpper(cfg.AccessAddr), "ACCESS_ADDR") {
+		logErrorf("access_addr is required in %s", *configPath)
+		os.Exit(1)
+	}
 
 	psk, err := cfg.GetPSKBytes()
 	if err != nil {
@@ -106,7 +111,7 @@ func main() {
 		cfgPath:  *configPath,
 		cfg:      cfg,
 		psk:      psk,
-		reporter: reporter.NewReporter(cfg.PanelURL, cfg.MachineID, cfg.Role, cfg.Token, Version),
+		reporter: reporter.NewReporter(cfg.PanelURL, cfg.MachineID, cfg.Role, cfg.Token, cfg.AccessAddr, Version),
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
 		},

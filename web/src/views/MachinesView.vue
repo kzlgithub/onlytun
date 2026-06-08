@@ -29,7 +29,7 @@
               v-model="keyword"
               class="search-input"
               clearable
-              placeholder="搜索名称、IP、角色"
+              placeholder="搜索名称、接入地址、角色"
             />
             <el-button v-if="localDemoMode" type="success" plain @click="addDemoMachine('ingress')">
               新增入口演示
@@ -73,7 +73,7 @@
       class="install-dialog"
     >
       <div class="install-dialog-body">
-        <p class="dialog-tip">复制下面这一整行命令到服务器执行即可。</p>
+        <p class="dialog-tip">复制下面这一整行命令到服务器执行，并把 YOUR_ACCESS_ADDR 替换为节点接入地址。</p>
         <div class="code-block command-modal-block">
           <pre>{{ currentInstallCommand || '暂无安装命令' }}</pre>
         </div>
@@ -217,7 +217,7 @@ async function openInstallDialog(role) {
     const installRole = role === 'ix' ? 'egress' : role;
     const extra = role === 'ix' ? ' --ix' : '';
     machineStore.installCommands[role] =
-      `bash <(curl -fsSL https://raw.githubusercontent.com/kzlgithub/onlytun/main/scripts/install.sh) --token 'demo-token-${role}' --role ${installRole} --panel 'http://127.0.0.1:8080'${extra}`;
+      `bash <(curl -fsSL https://raw.githubusercontent.com/kzlgithub/onlytun/main/scripts/install.sh) --token 'demo-token-${role}' --role ${installRole} --panel 'http://127.0.0.1:8080' --access-addr YOUR_ACCESS_ADDR${extra}`;
     return;
   }
   if (!machineStore.installCommands[role]) {
@@ -230,7 +230,7 @@ async function copyInstallCommand() {
 }
 
 async function copyIP(machine) {
-  await copyText(machine.ip || '', 'IP 已复制');
+  await copyText(machine.ip || '', '接入地址已复制');
 }
 
 async function copyText(text, successText) {
@@ -387,9 +387,9 @@ onMounted(async () => {
   await loadData({ initial: machineStore.machines.length === 0 });
   if (localDemoMode) {
     machineStore.installCommands.ingress =
-      "bash <(curl -fsSL https://raw.githubusercontent.com/kzlgithub/onlytun/main/scripts/install.sh) --token 'demo-token-ingress' --role ingress --panel 'http://127.0.0.1:8080'";
+      "bash <(curl -fsSL https://raw.githubusercontent.com/kzlgithub/onlytun/main/scripts/install.sh) --token 'demo-token-ingress' --role ingress --panel 'http://127.0.0.1:8080' --access-addr YOUR_ACCESS_ADDR";
     machineStore.installCommands.egress =
-      "bash <(curl -fsSL https://raw.githubusercontent.com/kzlgithub/onlytun/main/scripts/install.sh) --token 'demo-token-egress' --role egress --panel 'http://127.0.0.1:8080'";
+      "bash <(curl -fsSL https://raw.githubusercontent.com/kzlgithub/onlytun/main/scripts/install.sh) --token 'demo-token-egress' --role egress --panel 'http://127.0.0.1:8080' --access-addr YOUR_ACCESS_ADDR";
   } else {
     await machineStore.fetchInstallCommands();
   }
@@ -435,7 +435,7 @@ const MachineGroup = defineComponent({
                   h('span', { class: 'machine-ip-text' }, machine.ip || '--'),
                   h(
                     ElTooltip,
-                    { content: '复制 IP', placement: 'top' },
+                    { content: '复制接入地址', placement: 'top' },
                     {
                       default: () =>
                         h(

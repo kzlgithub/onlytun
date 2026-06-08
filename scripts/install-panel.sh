@@ -11,6 +11,7 @@ PANEL_PORT="8080"
 PANEL_PORT_SET="false"
 PANEL_PASSWORD=""
 ACTION=""
+ACCESS_ADDR=""
 
 PANEL_BIN="/usr/local/bin/onlytun-panel"
 CONFIG_DIR="/etc/onlytun"
@@ -22,8 +23,8 @@ usage() {
   cat <<EOF
 Usage:
   bash install-panel.sh
-  bash install-panel.sh --port 8080 --password YOUR_PASSWORD
-  bash install-panel.sh --install --port 8080 --password YOUR_PASSWORD
+  bash install-panel.sh --port 8080 --password YOUR_PASSWORD --access-addr PANEL_ACCESS_ADDR
+  bash install-panel.sh --install --port 8080 --password YOUR_PASSWORD --access-addr PANEL_ACCESS_ADDR
   bash install-panel.sh --uninstall
   bash install-panel.sh --update
   bash install-panel.sh --check-version
@@ -60,6 +61,10 @@ parse_args() {
         PANEL_PASSWORD="${2:-}"
         shift 2
         ;;
+      --access-addr)
+        ACCESS_ADDR="${2:-}"
+        shift 2
+        ;;
       --install)
         ACTION="install"
         shift
@@ -91,7 +96,7 @@ prompt_action_if_missing() {
   if [ -n "$ACTION" ]; then
     return
   fi
-  if [ -n "$PANEL_PASSWORD" ]; then
+  if [ -n "$PANEL_PASSWORD" ] || [ -n "$ACCESS_ADDR" ]; then
     ACTION="install"
     return
   fi
@@ -121,6 +126,37 @@ prompt_action_if_missing() {
 validate_port() {
   printf '%s' "$PANEL_PORT" | grep -Eq '^[0-9]+$' || fail "--port must be a number."
   [ "$PANEL_PORT" -ge 1 ] && [ "$PANEL_PORT" -le 65535 ] || fail "--port must be between 1 and 65535."
+}
+
+validate_access_addr() {
+  local value="$1"
+  [ -n "$value" ] || fail "--access-addr is required."
+  case "$value" in
+    *ACCESS_ADDR*) fail "Please replace the access address placeholder with the real panel access address." ;;
+  esac
+  printf '%s' "$value" | grep -Eq '^[^[:space:]/]+$' || fail "--access-addr must be an IP address or hostname without path."
+  case "$value" in
+    *://*) fail "--access-addr must not include http:// or https://." ;;
+  esac
+}
+
+prompt_access_addr() {
+  if [ -n "$ACCESS_ADDR" ]; then
+    ACCESS_ADDR="$(printf '%s' "$ACCESS_ADDR" | tr -d '[:space:]')"
+    validate_access_addr "$ACCESS_ADDR"
+    return
+  fi
+
+  [ -t 0 ] || fail "--access-addr is required in non-interactive mode."
+  while [ -z "$ACCESS_ADDR" ]; do
+    printf "Panel access address (public IP or domain): "
+    read -r ACCESS_ADDR
+    ACCESS_ADDR="$(printf '%s' "$ACCESS_ADDR" | tr -d '[:space:]')"
+    if [ -z "$ACCESS_ADDR" ]; then
+      warn "Panel access address cannot be empty."
+    fi
+  done
+  validate_access_addr "$ACCESS_ADDR"
 }
 
 detect_os() {
@@ -248,47 +284,12 @@ enable_service() {
   success "${SERVICE_NAME} service started."
 }
 
-valid_ip() {
-  printf '%s' "$1" | grep -Eq '^([0-9]{1,3}\.){3}[0-9]{1,3}$|^[0-9a-fA-F:]+$'
-}
-
-fetch_public_ip() {
-  PUBLIC_IP=""
-  local services="
-https://api.ipify.org
-https://ifconfig.me/ip
-https://icanhazip.com
-https://ident.me
-http://checkip.amazonaws.com
-http://ifconfig.me/ip
-"
-
-  for ip_service in $services; do
-    PUBLIC_IP="$(curl -fsS --connect-timeout 3 --max-time 6 "$ip_service" 2>/dev/null | tr -d '[:space:]' || true)"
-    if [ -n "$PUBLIC_IP" ] && valid_ip "$PUBLIC_IP"; then
-      success "Public IP: ${PUBLIC_IP}"
-      return 0
-    fi
-  done
-
-  PUBLIC_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
-  if [ -n "$PUBLIC_IP" ]; then
-    warn "Could not query public IP services. Showing local server IP instead: ${PUBLIC_IP}"
-    return 0
-  fi
-
-  PUBLIC_IP="SERVER_IP"
-  warn "Could not detect IP automatically. Replace SERVER_IP with your server public IP."
-  return 0
-}
-
 check_service() {
   info "Waiting for service startup..."
   sleep 3
   if systemctl is-active --quiet "$SERVICE_NAME"; then
-    fetch_public_ip
     success "OnlyTun Panel installed successfully."
-    printf "%bPanel URL:%b http://%s:%s\n" "$GREEN" "$NC" "$PUBLIC_IP" "$PANEL_PORT"
+    printf "%bPanel URL:%b http://%s:%s\n" "$GREEN" "$NC" "$ACCESS_ADDR" "$PANEL_PORT"
   else
     warn "Service is not active. Status output:"
     systemctl status "$SERVICE_NAME" --no-pager || true
@@ -414,6 +415,7 @@ main() {
   esac
 
   validate_port
+  prompt_access_addr
   require_command stty
   detect_os
   detect_arch

@@ -3,6 +3,7 @@ package service
 import (
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -87,6 +88,62 @@ func TestMachineUpdateCompletesWhenHeartbeatReportsNewVersion(t *testing.T) {
 	}
 	if stored.FinishedAt == nil {
 		t.Fatalf("expected task finished_at to be set")
+	}
+}
+
+func TestRegisterMachineRequiresAccessAddr(t *testing.T) {
+	gdb, err := paneldb.OpenDatabase(filepath.Join(t.TempDir(), "panel.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	token := paneldb.InstallToken{Token: "install-token", ExpiresAt: time.Now().Add(time.Hour)}
+	if err := gdb.Create(&token).Error; err != nil {
+		t.Fatalf("create token: %v", err)
+	}
+
+	svc := NewMachineService(gdb, 19999)
+	_, _, err = svc.RegisterMachine("install-token", RegisterMachineInput{Role: "ingress"}, "")
+	if !errors.Is(err, ErrMachineAccessAddrRequired) {
+		t.Fatalf("expected access address error, got %v", err)
+	}
+}
+
+func TestRegisterIXMachineAllowsDefaultConnectAddress(t *testing.T) {
+	gdb, err := paneldb.OpenDatabase(filepath.Join(t.TempDir(), "panel.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	token := paneldb.InstallToken{Token: "install-token", ExpiresAt: time.Now().Add(time.Hour)}
+	if err := gdb.Create(&token).Error; err != nil {
+		t.Fatalf("create token: %v", err)
+	}
+
+	svc := NewMachineService(gdb, 19999)
+	machine, _, err := svc.RegisterMachine("install-token", RegisterMachineInput{
+		Role: "egress",
+		IsIX: true,
+	}, "103.177.162.211")
+	if err != nil {
+		t.Fatalf("register IX machine: %v", err)
+	}
+	if !machine.IsIX {
+		t.Fatalf("expected IX flag")
+	}
+	if machine.TunnelAdvertiseAddr != "" {
+		t.Fatalf("expected empty custom tunnel address, got %q", machine.TunnelAdvertiseAddr)
+	}
+	if got := EgressConnectAddr(*machine, 19999); got != "103.177.162.211:19999" {
+		t.Fatalf("expected default connect address, got %q", got)
+	}
+}
+
+func TestBuildInstallCommandRequiresAccessAddrPlaceholder(t *testing.T) {
+	command := buildInstallCommand("http://panel.example.com:8080", "egress", "token-1", []string{"--ix"})
+	if !strings.Contains(command, "--access-addr YOUR_ACCESS_ADDR") {
+		t.Fatalf("expected access address placeholder in command: %s", command)
+	}
+	if !strings.Contains(command, "--ix") {
+		t.Fatalf("expected IX flag in command: %s", command)
 	}
 }
 

@@ -76,7 +76,8 @@ func (h *Handler) AgentHeartbeat(c *gin.Context) {
 
 	ip := strings.TrimSpace(req.IP)
 	if ip == "" {
-		ip = ClientIP(c)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "access address is required"})
+		return
 	}
 
 	if err := h.Machines.UpdateHeartbeat(machine, req.Role, ip, req.AgentVersion, req.IsIX, req.TunnelAdvertiseAddr, req.CPUPercent, req.MemPercent, req.DiskPercent, req.UptimeSec, req.NetBytesUp, req.NetBytesDown); err != nil {
@@ -205,7 +206,8 @@ func (h *Handler) AgentRegister(c *gin.Context) {
 
 	ip := strings.TrimSpace(req.IP)
 	if ip == "" {
-		ip = ClientIP(c)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "access address is required"})
+		return
 	}
 
 	machine, psk, err := h.Machines.RegisterMachine(token, service.RegisterMachineInput{
@@ -223,7 +225,8 @@ func (h *Handler) AgentRegister(c *gin.Context) {
 			errors.Is(err, service.ErrInstallTokenUsed):
 			status = http.StatusUnauthorized
 		case errors.Is(err, service.ErrInvalidRole),
-			errors.Is(err, service.ErrInvalidTunnelAddr):
+			errors.Is(err, service.ErrInvalidTunnelAddr),
+			errors.Is(err, service.ErrMachineAccessAddrRequired):
 			status = http.StatusBadRequest
 		default:
 			status = http.StatusInternalServerError

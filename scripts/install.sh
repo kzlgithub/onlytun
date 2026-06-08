@@ -12,6 +12,7 @@ PANEL_URL=""
 INSTALL_TOKEN=""
 MACHINE_NAME=""
 ACTION=""
+ACCESS_ADDR=""
 IS_IX=false
 TUNNEL_ADVERTISE_ADDR=""
 
@@ -27,14 +28,15 @@ usage() {
   cat <<EOF
 Usage:
   bash install.sh
-  bash install.sh --token INSTALL_TOKEN --role ingress|egress --panel http://host:port
-  bash install.sh --install --token INSTALL_TOKEN --role ingress|egress --panel http://host:port
+  bash install.sh --token INSTALL_TOKEN --role ingress|egress --panel http://host:port --access-addr NODE_ACCESS_ADDR
+  bash install.sh --install --token INSTALL_TOKEN --role ingress|egress --panel http://host:port --access-addr NODE_ACCESS_ADDR
   bash install.sh --uninstall
   bash install.sh --update
   bash install.sh --check-version
 
 Optional non-interactive flags:
   --name MACHINE_NAME
+  --access-addr NODE_ACCESS_ADDR
   --ix
   --tunnel-advertise-addr HOST:PORT
 EOF
@@ -77,6 +79,10 @@ parse_args() {
         MACHINE_NAME="${2:-}"
         shift 2
         ;;
+      --access-addr)
+        ACCESS_ADDR="${2:-}"
+        shift 2
+        ;;
       --ix)
         IS_IX=true
         shift
@@ -116,7 +122,7 @@ prompt_action_if_missing() {
   if [ -n "$ACTION" ]; then
     return
   fi
-  if [ -n "$INSTALL_TOKEN" ] || [ -n "$ROLE" ] || [ -n "$PANEL_URL" ]; then
+  if [ -n "$INSTALL_TOKEN" ] || [ -n "$ROLE" ] || [ -n "$PANEL_URL" ] || [ -n "$ACCESS_ADDR" ]; then
     ACTION="install"
     return
   fi
@@ -145,9 +151,11 @@ prompt_action_if_missing() {
 
 validate_install_args() {
   [ -n "$INSTALL_TOKEN" ] || fail "--token is required."
+  [ -n "$ACCESS_ADDR" ] || fail "--access-addr is required."
+  validate_access_addr "$ACCESS_ADDR"
+  [ -z "$MACHINE_NAME" ] && MACHINE_NAME="$ACCESS_ADDR"
   if [ "$IS_IX" = true ]; then
     [ "$ROLE" = "egress" ] || fail "--ix can only be used with --role egress."
-    [ -n "$TUNNEL_ADVERTISE_ADDR" ] || fail "--tunnel-advertise-addr is required when --ix is used."
   fi
 }
 
@@ -185,15 +193,21 @@ prompt_if_missing() {
     done
   fi
   PANEL_URL="${PANEL_URL%/}"
+
+  if [ -z "$ACCESS_ADDR" ]; then
+    [ -t 0 ] || fail "--access-addr is required in non-interactive mode."
+    while [ -z "$ACCESS_ADDR" ]; do
+      printf "Node access address (public IP/domain; IX uses domestic entry IP): "
+      read -r ACCESS_ADDR
+      ACCESS_ADDR="$(printf '%s' "$ACCESS_ADDR" | tr -d '[:space:]')"
+      if [ -z "$ACCESS_ADDR" ]; then
+        warn "Node access address cannot be empty."
+      fi
+    done
+  fi
+
   if [ "$IS_IX" = true ] && [ "$ROLE" != "egress" ]; then
     fail "--ix can only be used with egress role."
-  fi
-  if [ "$IS_IX" = true ] && [ -z "$TUNNEL_ADVERTISE_ADDR" ]; then
-    [ -t 0 ] || fail "--tunnel-advertise-addr is required when --ix is used."
-    while [ -z "$TUNNEL_ADVERTISE_ADDR" ]; do
-      printf "IX tunnel advertise address, for example 103.177.162.211:19999: "
-      read -r TUNNEL_ADVERTISE_ADDR
-    done
   fi
 }
 
@@ -263,37 +277,17 @@ download_agent() {
   success "Agent binary installed at ${AGENT_BIN}"
 }
 
-valid_ip() {
-  printf '%s' "$1" | grep -Eq '^([0-9]{1,3}\.){3}[0-9]{1,3}$|^[0-9a-fA-F:]+$'
-}
-
-fetch_public_ip() {
-  PUBLIC_IP=""
-  local services="
-https://api.ipify.org
-https://ifconfig.me/ip
-https://icanhazip.com
-https://ident.me
-http://checkip.amazonaws.com
-http://ifconfig.me/ip
-"
-
-  for ip_service in $services; do
-    PUBLIC_IP="$(curl -fsS --connect-timeout 3 --max-time 6 "$ip_service" 2>/dev/null || true)"
-    PUBLIC_IP="$(printf '%s' "$PUBLIC_IP" | tr -d '[:space:]')"
-    if [ -n "$PUBLIC_IP" ] && valid_ip "$PUBLIC_IP"; then
-      break
-    fi
-  done
-
-  if [ -z "$PUBLIC_IP" ]; then
-    PUBLIC_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
-    [ -n "$PUBLIC_IP" ] || fail "Could not detect a usable IP address."
-    warn "Could not query public IP services. Using local server IP instead: ${PUBLIC_IP}"
-  fi
-
-  [ -n "$MACHINE_NAME" ] || MACHINE_NAME="$PUBLIC_IP"
-  success "Machine IP: ${PUBLIC_IP}"
+validate_access_addr() {
+  local value="$1"
+  [ -n "$value" ] || fail "--access-addr is required."
+  case "$value" in
+    *ACCESS_ADDR*) fail "Please replace the access address placeholder with the real node access address." ;;
+  esac
+  printf '%s' "$value" | grep -Eq '^[^[:space:]/]+$' || fail "--access-addr must be an IP address or hostname without path."
+  case "$value" in
+    *://*) fail "--access-addr must not include http:// or https://." ;;
+  esac
+  success "Node access address: ${value}"
 }
 
 json_escape() {
@@ -303,7 +297,7 @@ json_escape() {
 register_machine() {
   local payload
   payload=$(cat <<EOF
-{"name":"$(json_escape "$MACHINE_NAME")","role":"$(json_escape "$ROLE")","token":"$(json_escape "$INSTALL_TOKEN")","ip":"$(json_escape "$PUBLIC_IP")","os":"$(json_escape "$(uname -s)")","is_ix":${IS_IX},"tunnel_advertise_addr":"$(json_escape "$TUNNEL_ADVERTISE_ADDR")"}
+{"name":"$(json_escape "$MACHINE_NAME")","role":"$(json_escape "$ROLE")","token":"$(json_escape "$INSTALL_TOKEN")","ip":"$(json_escape "$ACCESS_ADDR")","os":"$(json_escape "$(uname -s)")","is_ix":${IS_IX},"tunnel_advertise_addr":"$(json_escape "$TUNNEL_ADVERTISE_ADDR")"}
 EOF
 )
 
@@ -330,6 +324,7 @@ write_config() {
   "psk": "${PSK}",
   "panel_url": "${PANEL_URL}",
   "token": "${INSTALL_TOKEN}",
+  "access_addr": "$(json_escape "$ACCESS_ADDR")",
   "tunnel_listen_addr": "${DEFAULT_TUNNEL_ADDR}",
   "tunnel_advertise_addr": "$(json_escape "$TUNNEL_ADVERTISE_ADDR")",
   "is_ix": ${IS_IX},
@@ -503,7 +498,6 @@ main() {
   prepare_dirs
   apply_tcp_tuning
   download_agent
-  fetch_public_ip
   register_machine
   write_config
   write_service

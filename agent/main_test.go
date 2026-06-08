@@ -31,10 +31,11 @@ func TestAgentRuntimeSyncConfigStartsAndStopsIngressRules(t *testing.T) {
 		cfg: &config.Config{
 			Role:             "egress",
 			PSK:              pskHex,
+			AccessAddr:       "127.0.0.1",
 			TunnelListenAddr: egressListenAddr,
 		},
 		psk:      psk,
-		reporter: reporter.NewReporter("http://127.0.0.1", "egress-machine", "egress", "token"),
+		reporter: reporter.NewReporter("http://127.0.0.1", "egress-machine", "egress", "token", "127.0.0.1"),
 		ingress:  make(map[string]*ingressRuntime),
 	}
 	if err := egressRuntime.applyEgressRules(); err != nil {
@@ -65,12 +66,13 @@ func TestAgentRuntimeSyncConfigStartsAndStopsIngressRules(t *testing.T) {
 
 	cfgPath := filepath.Join(t.TempDir(), "cache.json")
 	initialCfg := &config.Config{
-		MachineID: "ingress-machine",
-		Role:      "ingress",
-		PSK:       pskHex,
-		PanelURL:  panel.URL,
-		Token:     "panel-token",
-		Rules:     nil,
+		MachineID:  "ingress-machine",
+		Role:       "ingress",
+		PSK:        pskHex,
+		PanelURL:   panel.URL,
+		Token:      "panel-token",
+		AccessAddr: "127.0.0.1",
+		Rules:      nil,
 	}
 	if err := config.SaveConfig(cfgPath, initialCfg); err != nil {
 		t.Fatalf("save initial config: %v", err)
@@ -80,7 +82,7 @@ func TestAgentRuntimeSyncConfigStartsAndStopsIngressRules(t *testing.T) {
 		cfgPath:    cfgPath,
 		cfg:        initialCfg,
 		psk:        psk,
-		reporter:   reporter.NewReporter(panel.URL, initialCfg.MachineID, initialCfg.Role, initialCfg.Token),
+		reporter:   reporter.NewReporter(panel.URL, initialCfg.MachineID, initialCfg.Role, initialCfg.Token, initialCfg.AccessAddr),
 		httpClient: panel.Client(),
 		ingress:    make(map[string]*ingressRuntime),
 	}
@@ -162,13 +164,14 @@ func TestAgentRuntimeApplyEgressRulesUsesTunnelListenAddr(t *testing.T) {
 		cfg: &config.Config{
 			Role:             "egress",
 			PSK:              pskHex,
+			AccessAddr:       "127.0.0.1",
 			TunnelListenAddr: listenAddr,
 			Rules: []config.RuleConfig{
 				{RuleID: "rule-1", ListenAddr: "127.0.0.1:6553"},
 			},
 		},
 		psk:      psk,
-		reporter: reporter.NewReporter("http://127.0.0.1", "egress-machine", "egress", "token"),
+		reporter: reporter.NewReporter("http://127.0.0.1", "egress-machine", "egress", "token", "127.0.0.1"),
 		ingress:  make(map[string]*ingressRuntime),
 	}
 	defer runtime.shutdown()
@@ -205,7 +208,8 @@ func TestAgentRuntimeStartInitialFailsWhenAllIngressRulesFail(t *testing.T) {
 
 	runtime := &agentRuntime{
 		cfg: &config.Config{
-			Role: "ingress",
+			Role:       "ingress",
+			AccessAddr: "127.0.0.1",
 			Rules: []config.RuleConfig{
 				{
 					RuleID:     "rule-1",
@@ -217,7 +221,7 @@ func TestAgentRuntimeStartInitialFailsWhenAllIngressRulesFail(t *testing.T) {
 			},
 		},
 		psk:      psk,
-		reporter: reporter.NewReporter("http://127.0.0.1", "ingress-machine", "ingress", "token"),
+		reporter: reporter.NewReporter("http://127.0.0.1", "ingress-machine", "ingress", "token", "127.0.0.1"),
 		ingress:  make(map[string]*ingressRuntime),
 	}
 	defer runtime.shutdown()

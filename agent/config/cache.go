@@ -29,6 +29,7 @@ type Config struct {
 	PSK                 string       `json:"psk"`
 	PanelURL            string       `json:"panel_url"`
 	Token               string       `json:"token"`
+	AccessAddr          string       `json:"access_addr"`
 	TunnelListenAddr    string       `json:"tunnel_listen_addr"`
 	TunnelAdvertiseAddr string       `json:"tunnel_advertise_addr"`
 	IsIX                bool         `json:"is_ix"`

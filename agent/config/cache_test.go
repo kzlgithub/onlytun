@@ -17,6 +17,7 @@ func TestSaveLoadConfigRoundTrip(t *testing.T) {
 		PSK:              "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff",
 		PanelURL:         "http://127.0.0.1:8080",
 		Token:            "token-1",
+		AccessAddr:       "node.example.com",
 		TunnelListenAddr: "0.0.0.0:19999",
 		Rules: []RuleConfig{
 			{
@@ -43,6 +44,7 @@ func TestSaveLoadConfigRoundTrip(t *testing.T) {
 		loaded.PSK != cfg.PSK ||
 		loaded.PanelURL != cfg.PanelURL ||
 		loaded.Token != cfg.Token ||
+		loaded.AccessAddr != cfg.AccessAddr ||
 		loaded.TunnelListenAddr != cfg.TunnelListenAddr {
 		t.Fatalf("loaded config mismatch: %+v", loaded)
 	}

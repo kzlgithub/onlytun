@@ -136,11 +136,18 @@
         <el-table-column label="路径" min-width="360">
           <template #default="{ row }">
             <div class="path-line">
-              {{ row.ingress_group_name || row.ingress_group_id }}:{{ row.ingress_port }}
-              →
-              {{ row.egress_group_name || row.egress_group_id }}
-              →
-              {{ row.target_addr }}:{{ row.target_port }}
+              <span class="path-text">
+                {{ row.ingress_group_name || row.ingress_group_id }}:{{ row.ingress_port }}
+                →
+                {{ row.egress_group_name || row.egress_group_id }}
+                →
+                {{ row.target_addr }}:{{ row.target_port }}
+              </span>
+              <el-tooltip content="查看路径详情" placement="top">
+                <el-button class="path-detail-button" type="primary" text circle @click="openRuleDetail(row)">
+                  <el-icon><View /></el-icon>
+                </el-button>
+              </el-tooltip>
             </div>
           </template>
         </el-table-column>
@@ -198,6 +205,76 @@
       </el-table>
       </div>
     </el-card>
+
+    <el-dialog v-model="detailDialog.visible" title="路径详情" width="880px" class="route-detail-dialog">
+      <div v-if="detailRule" class="route-detail">
+        <div class="route-detail-summary">
+          <div>
+            <span>规则</span>
+            <strong>{{ detailRule.name }}</strong>
+          </div>
+          <div>
+            <span>入口端口</span>
+            <strong>{{ detailRule.ingress_port }}</strong>
+          </div>
+          <div>
+            <span>目标</span>
+            <strong>{{ detailRule.target_addr }}:{{ detailRule.target_port }}</strong>
+          </div>
+        </div>
+
+        <div class="route-map-head">
+          <div>
+            <span>入口组</span>
+            <strong>{{ detailIngressGroup?.name || detailRule.ingress_group_name || '入口组' }}</strong>
+          </div>
+          <em>按入口机稳定映射出口机</em>
+          <div>
+            <span>出口组</span>
+            <strong>{{ detailEgressGroup?.name || detailRule.egress_group_name || '出口组' }}</strong>
+          </div>
+        </div>
+
+        <div class="route-map-list">
+          <div v-for="route in detailRouteMappings" :key="route.ingress.id" class="route-map-card">
+            <div class="route-map-node" :class="{ offline: !route.ingress.online }">
+              <span class="member-status-dot" :class="{ online: route.ingress.online }"></span>
+              <div>
+                <small>入口机</small>
+                <strong>{{ route.ingress.name || route.ingress.ip || route.ingress.id }}</strong>
+                <span>{{ route.ingress.ip || '未上报IP' }}:{{ detailRule.ingress_port }}</span>
+              </div>
+              <el-tag :type="route.ingress.online ? 'success' : 'info'" effect="light" round>
+                {{ route.ingress.online ? '在线' : '离线' }}
+              </el-tag>
+            </div>
+
+            <div class="route-map-arrow">→</div>
+
+            <div v-if="route.egress" class="route-map-node" :class="{ offline: !route.egress.online }">
+              <span class="member-status-dot" :class="{ online: route.egress.online }"></span>
+              <div>
+                <small>出口机</small>
+                <strong>{{ route.egress.name || route.egress.ip || route.egress.id }}</strong>
+                <span>{{ route.egress.tunnel_advertise_addr || route.egress.ip || '未上报接入地址' }}</span>
+              </div>
+              <el-tag v-if="route.egress.is_ix" type="warning" effect="light" round>IX</el-tag>
+              <el-tag :type="route.egress.online ? 'success' : 'info'" effect="light" round>
+                {{ route.egress.online ? '在线' : '离线' }}
+              </el-tag>
+            </div>
+            <div v-else class="route-map-node offline">
+              <span class="member-status-dot"></span>
+              <div>
+                <strong>无可用出口</strong>
+                <span>出口组没有在线或可连接地址</span>
+              </div>
+            </div>
+          </div>
+          <div v-if="detailRouteMappings.length === 0" class="route-node-empty">该入口组暂无成员</div>
+        </div>
+      </div>
+    </el-dialog>
 
     <el-dialog v-model="groupDialog.visible" :title="groupDialog.id ? '编辑设备组' : '新增设备组'" width="520px">
       <el-form ref="groupFormRef" :model="groupForm" :rules="groupRules" label-position="top">
@@ -290,6 +367,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
+import { View } from '@element-plus/icons-vue';
 import { useGroupRuleStore } from '../stores/groupRule';
 import { useMachineStore } from '../stores/machine';
 import { formatBytes, protocolLabel } from '../utils/format';
@@ -311,6 +389,7 @@ const limitGB = ref(0);
 const groupDialog = reactive({ visible: false, id: '', role: 'ingress' });
 const membersDialog = reactive({ visible: false, group: null });
 const ruleDialog = reactive({ visible: false, id: '' });
+const detailDialog = reactive({ visible: false, rule: null });
 
 const groupForm = reactive({ name: '', role: 'ingress', remark: '' });
 const ruleForm = reactive({
@@ -365,12 +444,49 @@ const filteredRules = computed(() => {
       .includes(q),
   );
 });
+const detailRule = computed(() => detailDialog.rule);
+const detailIngressGroup = computed(() => findGroupById(detailRule.value?.ingress_group_id));
+const detailEgressGroup = computed(() => findGroupById(detailRule.value?.egress_group_id));
+const detailIngressMembers = computed(() => detailIngressGroup.value?.members || []);
+const detailEgressMembers = computed(() => detailEgressGroup.value?.members || []);
+const detailOnlineEgressMembers = computed(() =>
+  detailEgressMembers.value.filter((machine) => machine.online && (machine.ip || machine.tunnel_advertise_addr)),
+);
+const detailRouteMappings = computed(() => {
+  const rule = detailRule.value;
+  if (!rule) return [];
+  return detailIngressMembers.value.map((ingress) => ({
+    ingress,
+    egress: pickMappedEgress(rule, ingress),
+  }));
+});
 
 const memberOptions = computed(() => {
   const role = membersDialog.group?.role;
   if (!role) return [];
   return machineStore.machines.filter((machine) => machine.role === role);
 });
+
+function findGroupById(id) {
+  if (!id) return null;
+  return groupStore.groups.find((group) => group.id === id) || null;
+}
+
+function pickMappedEgress(rule, ingress) {
+  const egresses = detailOnlineEgressMembers.value;
+  if (!rule?.id || !ingress?.id || egresses.length === 0) return null;
+  const hash = fnv32a(`${ingress.id}:${rule.id}`);
+  return egresses[hash % egresses.length];
+}
+
+function fnv32a(value) {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash >>> 0;
+}
 
 function filterGroups(groups) {
   const q = keyword.value.trim().toLowerCase();
@@ -496,6 +612,11 @@ function openRuleDialog(rule = null) {
     remark: rule?.remark || '',
   });
   limitGB.value = rule?.traffic_limit_bytes ? Math.round(rule.traffic_limit_bytes / 1024 / 1024 / 1024) : 0;
+}
+
+function openRuleDetail(rule) {
+  detailDialog.rule = rule;
+  detailDialog.visible = true;
 }
 
 async function submitRule() {
@@ -861,8 +982,169 @@ onBeforeUnmount(() => {
 }
 
 .path-line {
+  align-items: center;
   color: #3d516d;
+  display: flex;
+  gap: 10px;
   line-height: 1.7;
+  min-width: 0;
+}
+
+.path-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.path-detail-button {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  color: #409eff;
+  background: rgba(64, 158, 255, 0.08);
+}
+
+.path-detail-button:hover {
+  background: rgba(64, 158, 255, 0.16);
+}
+
+.route-detail {
+  display: grid;
+  gap: 20px;
+}
+
+.route-detail-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) 150px minmax(0, 1.35fr);
+  gap: 14px;
+}
+
+.route-detail-summary div {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 16px 18px;
+  border: 1px solid rgba(113, 135, 166, 0.14);
+  border-radius: 18px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(244, 249, 255, 0.92)),
+    radial-gradient(circle at 100% 0%, rgba(64, 158, 255, 0.1), transparent 34%);
+  box-shadow: 0 10px 28px rgba(18, 42, 76, 0.05);
+}
+
+.route-detail-summary span,
+.route-detail-panel-head span {
+  color: #8292a8;
+  font-size: 12px;
+}
+
+.route-detail-summary strong,
+.route-detail-panel-head strong {
+  overflow: hidden;
+  color: #132238;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.route-map-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 4px;
+}
+
+.route-map-head div {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.route-map-head em {
+  color: #8ca0b8;
+  font-size: 12px;
+  font-style: normal;
+}
+
+.route-map-list {
+  display: grid;
+  gap: 12px;
+}
+
+.route-map-card {
+  align-items: center;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px minmax(0, 1fr);
+  gap: 10px;
+  padding: 13px;
+  border: 1px solid rgba(113, 135, 166, 0.14);
+  border-radius: 20px;
+  background: linear-gradient(180deg, rgba(251, 253, 255, 0.96), rgba(244, 248, 255, 0.94));
+}
+
+.route-map-node {
+  align-items: center;
+  display: flex;
+  gap: 9px;
+  min-width: 0;
+  min-height: 58px;
+  padding: 10px 12px;
+  border: 1px solid rgba(113, 135, 166, 0.12);
+  border-radius: 16px;
+  background: #fff;
+}
+
+.route-map-node.offline {
+  opacity: 0.58;
+  background: #f1f5f9;
+}
+
+.route-map-node div {
+  min-width: 0;
+}
+
+.route-map-node strong,
+.route-map-node span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.route-map-node small {
+  display: block;
+  margin-bottom: 2px;
+  color: #9aa9bc;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.route-map-node strong {
+  color: #17243a;
+  font-size: 13px;
+}
+
+.route-map-node span {
+  color: #75869d;
+  font-size: 12px;
+}
+
+.route-node-empty {
+  padding: 14px;
+  border: 1px dashed rgba(113, 135, 166, 0.22);
+  border-radius: 14px;
+  color: #8292a8;
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.route-map-arrow {
+  align-self: center;
+  color: #7ea8dd;
+  font-size: 22px;
+  font-weight: 800;
+  text-align: center;
 }
 
 .danger {

@@ -338,8 +338,16 @@
           </el-form-item>
         </div>
         <div class="form-grid">
-          <el-form-item label="目标地址" prop="target_addr">
-            <el-input v-model="ruleForm.target_addr" placeholder="IP 或域名" />
+          <el-form-item prop="target_addr">
+            <template #label>
+              <span class="label-with-action">
+                <span>目标地址</span>
+                <el-button type="primary" link class="detect-link" @click.stop.prevent="detectGroupTarget">
+                  识别
+                </el-button>
+              </span>
+            </template>
+            <el-input v-model="ruleForm.target_addr" placeholder="支持 IP、域名或代理链接" />
           </el-form-item>
           <el-form-item label="目标端口" prop="target_port">
             <el-input-number v-model="ruleForm.target_port" :min="1" :max="65535" controls-position="right" />
@@ -371,6 +379,7 @@ import { View } from '@element-plus/icons-vue';
 import { useGroupRuleStore } from '../stores/groupRule';
 import { useMachineStore } from '../stores/machine';
 import { formatBytes, protocolLabel } from '../utils/format';
+import { parseTarget } from '../utils/targetParser';
 
 const groupStore = useGroupRuleStore();
 const machineStore = useMachineStore();
@@ -617,6 +626,24 @@ function openRuleDialog(rule = null) {
 function openRuleDetail(rule) {
   detailDialog.rule = rule;
   detailDialog.visible = true;
+}
+
+function detectGroupTarget() {
+  const raw = ruleForm.target_addr.trim();
+  if (!raw) {
+    ElMessage.warning('请先粘贴代理连接或输入目标地址');
+    return;
+  }
+
+  const parsed = parseTarget(raw);
+  if (!parsed.ok) {
+    ElMessage.warning(parsed.message);
+    return;
+  }
+
+  ruleForm.target_addr = parsed.host;
+  ruleForm.target_port = parsed.port;
+  ElMessage.success(`已识别：${parsed.host}:${parsed.port}`);
 }
 
 async function submitRule() {
@@ -1183,6 +1210,19 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) 180px;
   gap: 16px;
+}
+
+.label-with-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.detect-link {
+  padding: 0 2px;
+  height: auto;
+  font-weight: 600;
+  vertical-align: baseline;
 }
 
 .limit-tip {

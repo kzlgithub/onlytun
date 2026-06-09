@@ -451,20 +451,22 @@ const MachineGroup = defineComponent({
                         ),
                     },
                   ),
-                  h(
-                    'span',
-                    { class: ['agent-version-inline', hasAgentUpdate(machine) ? 'has-update' : ''] },
-                    agentVersionText(machine),
-                  ),
                 ]),
               ]),
             ]),
             h('div', { class: 'machine-card-tags' }, [
-              machine.is_ix
-                ? h(ElTag, { type: 'warning', effect: 'light', round: true }, () => 'IX出口')
-                : h(ElTag, { type: machine.role === 'egress' ? 'primary' : 'info', effect: 'light', round: true }, () => roleLabel(machine.role)),
-              h(ElTag, { type: machine.online ? 'success' : 'danger', effect: 'light', round: true }, () =>
-                machine.online ? '在线' : '离线',
+              h('div', { class: 'machine-tag-row' }, [
+                machine.is_ix
+                  ? h(ElTag, { type: 'warning', effect: 'light', round: true }, () => 'IX出口')
+                  : h(ElTag, { type: machine.role === 'egress' ? 'primary' : 'info', effect: 'light', round: true }, () => roleLabel(machine.role)),
+                h(ElTag, { type: machine.online ? 'success' : 'danger', effect: 'light', round: true }, () =>
+                  machine.online ? '在线' : '离线',
+                ),
+              ]),
+              h(
+                'span',
+                { class: ['agent-version-inline', hasAgentUpdate(machine) ? 'has-update' : ''] },
+                agentVersionText(machine),
               ),
             ]),
           ]),
@@ -1128,6 +1130,16 @@ function buildDemoMachines() {
   flex-direction: column;
   align-items: flex-end;
   gap: 6px;
+  max-width: 140px;
+}
+
+.machines-page .machine-tag-row {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  max-width: 100%;
+  white-space: nowrap;
 }
 
 .machines-page .machine-title-wrap {
@@ -1187,12 +1199,11 @@ function buildDemoMachines() {
 }
 
 .machines-page .agent-version-inline {
-  position: absolute;
-  top: 44px;
-  right: 18px;
-  max-width: 150px;
+  display: block;
+  max-width: 100%;
   color: #9aa8ba;
   font-size: 11px;
+  line-height: 1.2;
   text-align: right;
   white-space: nowrap;
   overflow: hidden;

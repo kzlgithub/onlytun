@@ -68,7 +68,9 @@ router.beforeEach((to) => {
   const token = localStorage.getItem('onlytun_token');
   const demoPreview =
     (to.path === '/dashboard' && to.query.demo === '1') ||
-    (import.meta.env.DEV && to.path === '/machines' && to.query.localDemo === '1');
+    (import.meta.env.DEV &&
+      (to.path === '/machines' || to.path === '/group-rules') &&
+      to.query.localDemo === '1');
 
   if (to.meta.requiresAuth && !token && !demoPreview) {
     return { path: '/login', query: { redirect: to.fullPath } };

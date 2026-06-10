@@ -1,16 +1,24 @@
 <template>
   <div class="page-shell group-rules-page">
     <div class="mode-title-action">
-      <div class="mode-toggle-pill" :class="{ active: groupStore.modeEnabled }">
-        <span class="mode-toggle-label">设备组模式</span>
-        <el-switch
-          :model-value="groupStore.modeEnabled"
-          :loading="modeSaving"
-          @change="toggleMode"
-        />
-        <el-tag :type="groupStore.modeEnabled ? 'primary' : 'info'" effect="light" round>
-          {{ groupStore.modeEnabled ? '已开启' : '已关闭' }}
-        </el-tag>
+      <div
+        class="mode-toggle-pill"
+        :class="{ active: groupStore.modeEnabled, saving: modeSaving }"
+        role="switch"
+        :aria-checked="String(groupStore.modeEnabled)"
+        :aria-disabled="String(modeSaving)"
+        tabindex="0"
+        @click="requestModeToggle"
+        @keydown.enter.prevent="requestModeToggle"
+        @keydown.space.prevent="requestModeToggle"
+      >
+        <span class="mode-toggle-dot"></span>
+        <span class="mode-toggle-label">{{ groupStore.modeEnabled ? '设备组模式运行中' : '设备组模式已停止' }}</span>
+        <span class="mode-switch" aria-hidden="true">
+          <span class="mode-switch-track">
+            <span class="mode-switch-thumb"></span>
+          </span>
+        </span>
       </div>
     </div>
 
@@ -436,6 +444,7 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue';
+import { useRoute } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { View } from '@element-plus/icons-vue';
 import { useGroupRuleStore } from '../stores/groupRule';
@@ -445,6 +454,8 @@ import { parseTarget } from '../utils/targetParser';
 
 const groupStore = useGroupRuleStore();
 const machineStore = useMachineStore();
+const route = useRoute();
+const localDemo = computed(() => import.meta.env.DEV && route.query.localDemo === '1');
 
 const keyword = ref('');
 const activeTab = ref('rules');
@@ -591,6 +602,12 @@ function memberSummary(machine) {
 }
 
 async function loadData(options = {}) {
+  if (localDemo.value) {
+    loadDemoData();
+    initialLoading.value = false;
+    manualRefreshing.value = false;
+    return;
+  }
   if (options.initial) initialLoading.value = true;
   try {
     await Promise.all([
@@ -601,6 +618,80 @@ async function loadData(options = {}) {
     initialLoading.value = false;
     manualRefreshing.value = false;
   }
+}
+
+function loadDemoData() {
+  groupStore.modeEnabled = true;
+  groupStore.groups = [
+    {
+      id: 'demo-ingress-1',
+      name: '入口组 广州',
+      role: 'ingress',
+      machine_count: 2,
+      members: [
+        {
+          id: 'demo-i-1',
+          name: '广东测试腾讯200M',
+          ip: '42.193.145.61',
+          online: true,
+          agent_version: 'v1.7.0',
+        },
+        {
+          id: 'demo-i-2',
+          name: '腾讯云广州 - 800元',
+          ip: '106.53.10.133',
+          online: true,
+          agent_version: 'v1.7.0',
+        },
+      ],
+    },
+    {
+      id: 'demo-egress-1',
+      name: '出口组 香港',
+      role: 'egress',
+      machine_count: 2,
+      members: [
+        {
+          id: 'demo-e-1',
+          name: 'FRC香港出口机',
+          ip: '172.81.104.204',
+          online: true,
+          agent_version: 'v1.7.0',
+        },
+        {
+          id: 'demo-e-2',
+          name: 'IX 103.177.162.211',
+          ip: '103.177.162.211',
+          tunnel_advertise_addr: '103.177.162.211:19999',
+          is_ix: true,
+          online: true,
+          agent_version: 'v1.7.0',
+        },
+      ],
+    },
+  ];
+  groupStore.rules = [
+    {
+      id: 'demo-rule-1',
+      name: 'joe-01',
+      ingress_group_id: 'demo-ingress-1',
+      ingress_group_name: '入口组 广州',
+      egress_group_id: 'demo-egress-1',
+      egress_group_name: '出口组 香港',
+      ingress_port: 53328,
+      target_addr: '61.219.247.68',
+      target_port: 51314,
+      protocol: 'tcp',
+      enabled: true,
+      effective_machines: 2,
+      ingress_machine_count: 2,
+      conflict_machines: 0,
+      online_egress_count: 2,
+      today_bytes: 12884901888,
+      traffic_limit_bytes: 0,
+    },
+  ];
+  machineStore.machines = [...groupStore.groups.flatMap((group) => group.members || [])];
 }
 
 async function manualRefresh() {
@@ -624,6 +715,11 @@ async function toggleMode(enabled) {
   } finally {
     modeSaving.value = false;
   }
+}
+
+function requestModeToggle() {
+  if (modeSaving.value) return;
+  toggleMode(!groupStore.modeEnabled).catch(() => {});
 }
 
 function openGroupDialog(role, group = null) {
@@ -1039,58 +1135,194 @@ onMounted(async () => {
 .mode-toggle-pill {
   display: inline-flex;
   align-items: center;
-  gap: 9px;
+  gap: 12px;
   box-sizing: border-box;
-  min-height: 34px;
-  padding: 5px 8px 5px 13px;
-  border: 1px solid rgba(113, 135, 166, 0.16);
+  min-height: 43px;
+  padding: 10px 16px;
+  border: 1px solid rgba(59, 130, 246, 0.2);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.86);
-  color: #64748b;
-  box-shadow: 0 10px 24px rgba(19, 34, 56, 0.06);
-  transition: border-color 0.18s ease, background 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
+  background:
+    linear-gradient(135deg, #e8f4ff 0%, #dbeeff 100%);
+  color: #1d4ed8;
+  cursor: pointer;
+  user-select: none;
+  box-shadow:
+    0 2px 12px rgba(59, 130, 246, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  transition:
+    border-color 0.3s ease,
+    background 0.3s ease,
+    color 0.3s ease,
+    box-shadow 0.3s ease,
+    transform 0.3s ease;
 }
 
 .mode-toggle-pill.active {
-  border-color: rgba(31, 111, 235, 0.22);
-  background: linear-gradient(135deg, rgba(237, 246, 255, 0.94), rgba(255, 255, 255, 0.9));
-  color: #1f6feb;
-  box-shadow: 0 12px 26px rgba(31, 111, 235, 0.1);
+  border-color: rgba(59, 130, 246, 0.2);
+  background:
+    linear-gradient(135deg, #e8f4ff 0%, #dbeeff 100%);
+  color: #1d4ed8;
+  box-shadow:
+    0 2px 12px rgba(59, 130, 246, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8);
 }
 
-.mode-toggle-pill :deep(.el-tag) {
-  height: 22px;
-  padding: 0 9px;
-  border: none;
-  font-weight: 700;
+.mode-toggle-pill:not(.active) {
+  border-color: rgba(0, 0, 0, 0.08);
+  background:
+    linear-gradient(135deg, #f0f0f4 0%, #e8e8ef 100%);
+  color: #6b7280;
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+.mode-toggle-pill:hover {
+  transform: none;
+}
+
+.mode-toggle-pill:focus-visible {
+  outline: 3px solid rgba(64, 158, 255, 0.22);
+  outline-offset: 3px;
 }
 
 .mode-toggle-label {
-  font-size: 13px;
-  font-weight: 700;
-  line-height: 20px;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 21px;
+  letter-spacing: 0.01em;
   white-space: nowrap;
+  transition: color 0.3s ease;
 }
 
-.mode-toggle-pill :deep(.el-switch) {
+.mode-toggle-dot {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: #9ca3af;
+  box-shadow: none;
+  transform: scale(1);
+  animation: none;
+}
+
+.mode-toggle-pill.active .mode-toggle-dot {
+  background: #2563eb;
+  animation: modeDotScale 0.4s ease-in-out;
+}
+
+.mode-toggle-pill.active .mode-toggle-dot::after {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: #3b82f6;
+  animation: modePulse 1.2s ease-out infinite;
+  content: '';
+}
+
+.mode-switch {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  margin-left: 4px;
+  padding: 0;
+}
+
+.mode-switch-track {
+  position: relative;
+  display: block;
+  width: 40px;
   height: 22px;
+  border-radius: 11px;
+  background:
+    #cbced4;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.15);
+  transition:
+    background 0.3s ease,
+    box-shadow 0.3s ease;
 }
 
-.mode-toggle-pill :deep(.el-switch__core) {
-  width: 42px;
-  min-width: 42px;
-  height: 22px;
-  border: none;
-  background: #cbd5e1;
+.mode-toggle-pill.active .mode-switch-track {
+  background:
+    linear-gradient(135deg, #3b82f6, #2563eb);
+  box-shadow:
+    0 2px 6px rgba(37, 99, 235, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
 }
 
-.mode-toggle-pill :deep(.el-switch.is-checked .el-switch__core) {
-  background: linear-gradient(135deg, #1f6feb, #4aa3ff);
-}
-
-.mode-toggle-pill :deep(.el-switch__action) {
+.mode-switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
   width: 18px;
   height: 18px;
+  border-radius: 999px;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+  transform: translateX(0);
+  transition:
+    transform 0.34s cubic-bezier(0.22, 1.12, 0.36, 1),
+    box-shadow 0.3s ease;
+}
+
+.mode-toggle-pill.active .mode-switch-thumb {
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+  transform: translateX(17px);
+}
+
+.mode-toggle-pill:active .mode-switch-thumb {
+  transform: translateX(0) scale(0.96);
+}
+
+.mode-toggle-pill.active:active .mode-switch-thumb {
+  transform: translateX(17px) scale(0.96);
+}
+
+.mode-toggle-pill.saving {
+  pointer-events: none;
+  opacity: 0.78;
+}
+
+.mode-toggle-pill.saving .mode-switch-thumb {
+  animation: modeThumbBusy 0.8s ease-in-out infinite;
+}
+
+@keyframes modeThumbBusy {
+  0%,
+  100% {
+    filter: brightness(1);
+  }
+
+  50% {
+    filter: brightness(0.92);
+  }
+}
+
+@keyframes modePulse {
+  0% {
+    opacity: 0.6;
+    transform: scale(1);
+  }
+
+  100% {
+    opacity: 0;
+    transform: scale(2.5);
+  }
+}
+
+@keyframes modeDotScale {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+
+  50% {
+    transform: scale(1.2);
+  }
 }
 
 .group-tabs-card {

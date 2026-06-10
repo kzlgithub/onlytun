@@ -23,7 +23,7 @@
         <div class="toolbar group-toolbar">
           <el-input v-model="keyword" class="search-input" clearable :placeholder="searchPlaceholder" />
           <el-button :loading="manualRefreshing || groupStore.refreshing" round @click="manualRefresh">
-            刷新
+            立即刷新
           </el-button>
           <template v-if="activeTab === 'groups'">
             <el-button type="primary" round :disabled="modeDisabled" @click="openGroupDialog('ingress')">新增入口组</el-button>
@@ -435,7 +435,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { View } from '@element-plus/icons-vue';
 import { useGroupRuleStore } from '../stores/groupRule';
@@ -489,8 +489,6 @@ const importDefaults = reactive({
   protocol: 'tcp',
   enabled: true,
 });
-
-let timer;
 
 const modeDisabled = computed(() => !groupStore.modeEnabled);
 const searchPlaceholder = computed(() =>
@@ -942,6 +940,7 @@ async function submitRule() {
     } else {
       ElMessage.success('设备组规则已保存');
     }
+    await loadData();
   } finally {
     submitting.value = false;
   }
@@ -954,7 +953,7 @@ async function toggleRule(rule) {
   }
   try {
     await groupStore.toggleRule(rule.id);
-    await groupStore.fetchRules();
+    await loadData();
   } catch (error) {
     const conflict = error.response?.data?.conflict_rule;
     if (conflict) {
@@ -969,6 +968,7 @@ async function deleteRule(rule) {
   await ElMessageBox.confirm(`确定删除组规则「${rule.name}」吗？`, '删除规则', { type: 'warning' });
   await groupStore.deleteRule(rule.id);
   ElMessage.success('设备组规则已删除');
+  await loadData();
 }
 
 async function batchDeleteRules() {
@@ -1016,11 +1016,6 @@ function ensureModeEnabled() {
 
 onMounted(async () => {
   await loadData({ initial: true });
-  timer = window.setInterval(() => loadData(), 3000);
-});
-
-onBeforeUnmount(() => {
-  if (timer) window.clearInterval(timer);
 });
 </script>
 

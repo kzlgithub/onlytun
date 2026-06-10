@@ -180,7 +180,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import RuleFormDialog from '../components/RuleFormDialog.vue';
 import { useMachineStore } from '../stores/machine';
@@ -212,7 +212,6 @@ const importDefaults = ref({
   egress_machine_id: '',
   protocol: 'tcp',
 });
-let timer;
 let loadingPromise = null;
 
 const deviceGroupMode = computed(() => groupRuleStore.modeEnabled);
@@ -641,11 +640,6 @@ async function batchDeleteRules() {
 
 onMounted(async () => {
   await loadData({ initial: ruleStore.rules.length === 0 });
-  timer = window.setInterval(() => loadData(), 5000);
-});
-
-onBeforeUnmount(() => {
-  window.clearInterval(timer);
 });
 </script>
 

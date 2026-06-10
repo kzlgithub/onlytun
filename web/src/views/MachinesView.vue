@@ -213,6 +213,7 @@ function manualRefresh() {
 async function openInstallDialog(role) {
   installDialog.role = role;
   installDialog.visible = true;
+  machineStore.installCommands[role] = '';
   if (localDemoMode) {
     const installRole = role === 'ix' ? 'egress' : role;
     const extra = role === 'ix' ? ' --ix' : '';
@@ -220,9 +221,7 @@ async function openInstallDialog(role) {
       `bash <(curl -fsSL https://raw.githubusercontent.com/kzlgithub/onlytun/main/scripts/install.sh) --token 'demo-token-${role}' --role ${installRole} --panel 'http://127.0.0.1:8080' --access-addr YOUR_ACCESS_ADDR${extra}`;
     return;
   }
-  if (!machineStore.installCommands[role]) {
-    await machineStore.fetchInstallCommands();
-  }
+  await machineStore.fetchInstallCommands();
 }
 
 async function copyInstallCommand() {

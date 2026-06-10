@@ -96,9 +96,12 @@ export const useGroupRuleStore = defineStore('groupRules', {
       await machineGroupApi.setMembers(id, machineIds);
       return this.fetchGroups();
     },
-    async createRule(payload) {
+    async createRule(payload, options = {}) {
+      const { refresh = true } = options;
       const { data } = await groupRuleApi.create(payload);
-      await this.fetchRules();
+      if (refresh) {
+        await this.fetchRules();
+      }
       return data;
     },
     async updateRule(id, payload) {
@@ -109,6 +112,12 @@ export const useGroupRuleStore = defineStore('groupRules', {
     async deleteRule(id) {
       await groupRuleApi.remove(id);
       this.rules = this.rules.filter((item) => item.id !== id);
+    },
+    async deleteRules(ids) {
+      const uniqueIds = [...new Set(ids.filter(Boolean))];
+      await Promise.all(uniqueIds.map((id) => groupRuleApi.remove(id)));
+      const deleted = new Set(uniqueIds);
+      this.rules = this.rules.filter((item) => !deleted.has(item.id));
     },
     async toggleRule(id) {
       const { data } = await groupRuleApi.toggle(id);

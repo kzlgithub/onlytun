@@ -29,7 +29,21 @@
             <el-button type="primary" round :disabled="modeDisabled" @click="openGroupDialog('ingress')">新增入口组</el-button>
             <el-button round :disabled="modeDisabled" @click="openGroupDialog('egress')">新增出口组</el-button>
           </template>
-          <el-button v-else type="primary" round :disabled="modeDisabled" @click="openRuleDialog()">新增组规则</el-button>
+          <template v-else>
+            <el-button round :disabled="modeDisabled" @click="openImportDialog">批量导入</el-button>
+            <el-button round :disabled="selectedRules.length === 0" @click="openExportDialog">导出选中</el-button>
+            <el-button
+              round
+              type="danger"
+              plain
+              :disabled="modeDisabled || selectedRules.length === 0"
+              :loading="batchDeleting"
+              @click="batchDeleteRules"
+            >
+              删除选中
+            </el-button>
+            <el-button type="primary" round :disabled="modeDisabled" @click="openRuleDialog()">新增组规则</el-button>
+          </template>
         </div>
       </div>
 
@@ -127,7 +141,15 @@
           </div>
         </div>
 
-      <el-table :data="filteredRules" row-key="id" v-loading="initialLoading" empty-text="暂无设备组规则">
+      <el-table
+        ref="ruleTableRef"
+        :data="filteredRules"
+        row-key="id"
+        v-loading="initialLoading"
+        empty-text="暂无设备组规则"
+        @selection-change="handleSelectionChange"
+      >
+        <el-table-column type="selection" width="38" />
         <el-table-column label="规则名称" min-width="160">
           <template #default="{ row }">
             <span class="rule-name">{{ row.name }}</span>
@@ -310,6 +332,46 @@
       </template>
     </el-dialog>
 
+    <el-dialog v-model="importDialog.visible" title="批量导入设备组规则" width="720px" class="batch-dialog">
+      <div class="batch-tip">
+        每行一条，格式：<code>名称#入口端口#目标地址#目标端口</code>。空行会自动跳过；端口冲突的规则会导入但保持关闭。
+      </div>
+      <div class="batch-options">
+        <el-select v-model="importDefaults.ingress_group_id" placeholder="选择入口组">
+          <el-option v-for="group in groupStore.ingressGroups" :key="group.id" :label="group.name" :value="group.id" />
+        </el-select>
+        <el-select v-model="importDefaults.egress_group_id" placeholder="选择出口组">
+          <el-option v-for="group in groupStore.egressGroups" :key="group.id" :label="group.name" :value="group.id" />
+        </el-select>
+        <el-select v-model="importDefaults.protocol" placeholder="协议" class="protocol-select">
+          <el-option label="TCP" value="tcp" />
+          <el-option label="UDP" value="udp" />
+          <el-option label="TCP+UDP" value="both" />
+        </el-select>
+        <el-switch v-model="importDefaults.enabled" inline-prompt active-text="启用" inactive-text="关闭" />
+      </div>
+      <el-input v-model="importText" type="textarea" :rows="12" />
+      <template #footer>
+        <div class="dialog-footer-actions">
+          <el-button @click="importDialog.visible = false">取消</el-button>
+          <el-button type="primary" :loading="importing" @click="importRules">开始导入</el-button>
+        </div>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="exportDialog.visible" title="导出选中设备组规则" width="680px" class="batch-dialog">
+      <div class="batch-tip">
+        已选择 {{ selectedRules.length }} 条设备组规则，导出格式与导入格式一致。
+      </div>
+      <el-input v-model="exportText" type="textarea" :rows="12" readonly />
+      <template #footer>
+        <div class="dialog-footer-actions">
+          <el-button @click="downloadExport">下载 TXT</el-button>
+          <el-button type="primary" @click="copyExport">复制内容</el-button>
+        </div>
+      </template>
+    </el-dialog>
+
     <el-dialog v-model="ruleDialog.visible" :title="ruleDialog.id ? '编辑设备组规则' : '新增设备组规则'" width="720px">
       <el-form ref="ruleFormRef" :model="ruleForm" :rules="ruleFormRules" label-position="top" class="rule-form">
         <el-form-item label="规则名称" prop="name">
@@ -392,13 +454,21 @@ const submitting = ref(false);
 const modeSaving = ref(false);
 const groupFormRef = ref(null);
 const ruleFormRef = ref(null);
+const ruleTableRef = ref(null);
 const memberSelection = ref([]);
+const selectedRules = ref([]);
 const limitGB = ref(0);
+const batchDeleting = ref(false);
+const importing = ref(false);
+const importText = ref('');
+const exportText = ref('');
 
 const groupDialog = reactive({ visible: false, id: '', role: 'ingress' });
 const membersDialog = reactive({ visible: false, group: null });
 const ruleDialog = reactive({ visible: false, id: '' });
 const detailDialog = reactive({ visible: false, rule: null });
+const importDialog = reactive({ visible: false });
+const exportDialog = reactive({ visible: false });
 
 const groupForm = reactive({ name: '', role: 'ingress', remark: '' });
 const ruleForm = reactive({
@@ -412,6 +482,12 @@ const ruleForm = reactive({
   traffic_limit_bytes: 0,
   enabled: true,
   remark: '',
+});
+const importDefaults = reactive({
+  ingress_group_id: '',
+  egress_group_id: '',
+  protocol: 'tcp',
+  enabled: true,
 });
 
 let timer;
@@ -623,6 +699,209 @@ function openRuleDialog(rule = null) {
   limitGB.value = rule?.traffic_limit_bytes ? Math.round(rule.traffic_limit_bytes / 1024 / 1024 / 1024) : 0;
 }
 
+function handleSelectionChange(rows) {
+  selectedRules.value = rows;
+}
+
+function openImportDialog() {
+  if (!ensureModeEnabled()) return;
+  if (!importDefaults.ingress_group_id && groupStore.ingressGroups.length === 1) {
+    importDefaults.ingress_group_id = groupStore.ingressGroups[0].id;
+  }
+  if (!importDefaults.egress_group_id && groupStore.egressGroups.length === 1) {
+    importDefaults.egress_group_id = groupStore.egressGroups[0].id;
+  }
+  importDialog.visible = true;
+}
+
+function openExportDialog() {
+  if (selectedRules.value.length === 0) {
+    ElMessage.warning('请先选择要导出的设备组规则');
+    return;
+  }
+  exportText.value = selectedRules.value.map(formatRuleLine).join('\n');
+  exportDialog.visible = true;
+}
+
+function formatRuleLine(rule) {
+  return [rule.name, rule.ingress_port, rule.target_addr, rule.target_port].join('#');
+}
+
+function parseImportText(text) {
+  const rows = [];
+  const errors = [];
+  const lines = text.split(/\r?\n/);
+
+  lines.forEach((line, index) => {
+    const lineNo = index + 1;
+    const raw = line.trim();
+    if (!raw) {
+      return;
+    }
+
+    const parts = raw.split('#').map((item) => item.trim());
+    if (parts.length !== 4) {
+      errors.push(`第 ${lineNo} 行格式错误，应为 4 段`);
+      return;
+    }
+
+    const [name, ingressPortRaw, targetAddr, targetPortRaw] = parts;
+    const ingressPort = Number(ingressPortRaw);
+    const targetPort = Number(targetPortRaw);
+    if (!name) {
+      errors.push(`第 ${lineNo} 行名称不能为空`);
+    }
+    if (!Number.isInteger(ingressPort) || ingressPort < 1 || ingressPort > 65535) {
+      errors.push(`第 ${lineNo} 行入口端口必须是 1-65535 的整数`);
+    }
+    if (!targetAddr) {
+      errors.push(`第 ${lineNo} 行目标地址不能为空`);
+    }
+    if (!Number.isInteger(targetPort) || targetPort < 1 || targetPort > 65535) {
+      errors.push(`第 ${lineNo} 行目标端口必须是 1-65535 的整数`);
+    }
+
+    rows.push({
+      line_no: lineNo,
+      name,
+      ingress_port: ingressPort,
+      target_addr: targetAddr,
+      target_port: targetPort,
+    });
+  });
+
+  return { rows, errors };
+}
+
+function ensureImportDefaults() {
+  if (!importDefaults.ingress_group_id) {
+    ElMessage.warning('请选择入口组');
+    return false;
+  }
+  if (!importDefaults.egress_group_id) {
+    ElMessage.warning('请选择出口组');
+    return false;
+  }
+  if (!importDefaults.protocol) {
+    ElMessage.warning('请选择协议');
+    return false;
+  }
+  return true;
+}
+
+function describeConflictRule(rule) {
+  if (!rule) {
+    return '未知规则';
+  }
+  return `${rule.name || rule.id}（端口 ${rule.ingress_port}，${protocolLabel(rule.protocol)}）`;
+}
+
+async function importRules() {
+  if (!ensureImportDefaults()) {
+    return;
+  }
+
+  const { rows, errors } = parseImportText(importText.value);
+  if (errors.length > 0) {
+    ElMessage.error(errors.slice(0, 3).join('；'));
+    return;
+  }
+  if (rows.length === 0) {
+    ElMessage.warning('没有可导入的设备组规则');
+    return;
+  }
+
+  importing.value = true;
+  let created = 0;
+  const disabledConflicts = [];
+  try {
+    for (const row of rows) {
+      const data = await groupStore.createRule({
+        ...row,
+        ingress_group_id: importDefaults.ingress_group_id,
+        egress_group_id: importDefaults.egress_group_id,
+        protocol: importDefaults.protocol,
+        enabled: importDefaults.enabled,
+        traffic_limit_bytes: 0,
+        remark: '',
+      }, { refresh: false });
+      created += 1;
+      if (data?.conflict_rule) {
+        disabledConflicts.push({
+          lineNo: row.line_no,
+          name: row.name,
+          conflict: data.conflict_rule,
+        });
+      }
+    }
+
+    if (disabledConflicts.length > 0) {
+      ElMessage.warning(`已导入 ${created} 条，其中 ${disabledConflicts.length} 条因端口占用保持关闭`);
+      try {
+        await ElMessageBox.alert(
+          disabledConflicts
+            .slice(0, 20)
+            .map((item) => `第 ${item.lineNo} 行 ${item.name}：被 ${describeConflictRule(item.conflict)} 占用`)
+            .join('\n'),
+          '端口占用提示',
+          {
+            confirmButtonText: '知道了',
+            customClass: 'import-conflict-alert',
+          },
+        );
+      } catch {
+        // Closing the notice does not mean the import failed.
+      }
+    } else {
+      ElMessage.success(`已导入 ${created} 条设备组规则`);
+    }
+    importDialog.visible = false;
+    importText.value = '';
+    await loadData();
+  } catch (error) {
+    ElMessage.error(`已导入 ${created} 条，后续导入失败：${error.response?.data?.error || error.message}`);
+  } finally {
+    importing.value = false;
+  }
+}
+
+async function copyExport() {
+  if (!exportText.value) {
+    return;
+  }
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(exportText.value);
+    } else {
+      copyTextFallback(exportText.value);
+    }
+  } catch {
+    copyTextFallback(exportText.value);
+  }
+  ElMessage.success('导出内容已复制');
+}
+
+function copyTextFallback(text) {
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.style.position = 'fixed';
+  textarea.style.opacity = '0';
+  document.body.appendChild(textarea);
+  textarea.select();
+  document.execCommand('copy');
+  document.body.removeChild(textarea);
+}
+
+function downloadExport() {
+  const blob = new Blob([exportText.value], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `onlytun-group-rules-${new Date().toISOString().slice(0, 10)}.txt`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 function openRuleDetail(rule) {
   detailDialog.rule = rule;
   detailDialog.visible = true;
@@ -676,7 +955,11 @@ async function toggleRule(rule) {
   try {
     await groupStore.toggleRule(rule.id);
     await groupStore.fetchRules();
-  } catch {
+  } catch (error) {
+    const conflict = error.response?.data?.conflict_rule;
+    if (conflict) {
+      ElMessage.warning(`无法启用：被 ${describeConflictRule(conflict)} 占用`);
+    }
     rule.enabled = !rule.enabled;
   }
 }
@@ -686,6 +969,41 @@ async function deleteRule(rule) {
   await ElMessageBox.confirm(`确定删除组规则「${rule.name}」吗？`, '删除规则', { type: 'warning' });
   await groupStore.deleteRule(rule.id);
   ElMessage.success('设备组规则已删除');
+}
+
+async function batchDeleteRules() {
+  if (!ensureModeEnabled()) return;
+  const rules = [...selectedRules.value];
+  if (rules.length === 0) {
+    ElMessage.warning('请先选择要删除的设备组规则');
+    return;
+  }
+
+  const preview = rules
+    .slice(0, 6)
+    .map((rule) => `“${rule.name}”`)
+    .join('、');
+  const suffix = rules.length > 6 ? ` 等 ${rules.length} 条设备组规则` : '';
+  await ElMessageBox.confirm(
+    `确定删除 ${rules.length} 条设备组规则吗？${preview}${suffix} 删除后不可恢复。`,
+    '批量删除确认',
+    {
+      type: 'warning',
+      confirmButtonText: '批量删除',
+      cancelButtonText: '取消',
+    },
+  );
+
+  batchDeleting.value = true;
+  try {
+    await groupStore.deleteRules(rules.map((rule) => rule.id));
+    selectedRules.value = [];
+    ruleTableRef.value?.clearSelection?.();
+    ElMessage.success(`已删除 ${rules.length} 条设备组规则`);
+    await loadData();
+  } finally {
+    batchDeleting.value = false;
+  }
 }
 
 function ensureModeEnabled() {
@@ -1225,6 +1543,45 @@ onBeforeUnmount(() => {
   vertical-align: baseline;
 }
 
+.batch-tip {
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  color: #5f728c;
+  background: #f6f9fd;
+  border: 1px solid rgba(84, 112, 150, 0.12);
+  line-height: 1.7;
+}
+
+.batch-tip code {
+  padding: 2px 6px;
+  border-radius: 7px;
+  color: #1f6feb;
+  background: rgba(64, 158, 255, 0.1);
+}
+
+.batch-options {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 130px 94px;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.dialog-footer-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+:deep(.batch-dialog .el-dialog__body) {
+  padding-top: 12px;
+}
+
+:global(.import-conflict-alert .el-message-box__message) {
+  white-space: pre-line;
+}
+
 .limit-tip {
   margin-left: 10px;
   color: #8292a8;
@@ -1248,7 +1605,8 @@ onBeforeUnmount(() => {
 
   .group-grid,
   .form-grid,
-  .member-list {
+  .member-list,
+  .batch-options {
     grid-template-columns: 1fr;
   }
 

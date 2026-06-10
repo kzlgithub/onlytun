@@ -276,7 +276,7 @@ func (s *RuleService) enabledDeviceGroupRulesForMachine(machine *paneldb.Machine
 			continue
 		}
 
-		conflict, err := s.findIngressPortConflict("", machine.ID, rule.IngressPort, rule.Protocol)
+		conflict, err := groups.findGroupRuleConflict(rule.ID, rule.IngressGroupID, rule.IngressPort, rule.Protocol)
 		if err != nil {
 			return nil, err
 		}

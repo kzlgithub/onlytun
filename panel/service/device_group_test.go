@@ -102,7 +102,7 @@ func TestEnabledDeviceGroupRulesUseIXAdvertiseAddress(t *testing.T) {
 	}
 }
 
-func TestDeviceGroupRuleSkipsIngressWhenSingleRuleOwnsPort(t *testing.T) {
+func TestDeviceGroupRuleIgnoresSingleRulePortWhenModeEnabled(t *testing.T) {
 	gdb, err := paneldb.OpenDatabase(filepath.Join(t.TempDir(), "panel.db"))
 	if err != nil {
 		t.Fatalf("open db: %v", err)
@@ -146,8 +146,24 @@ func TestDeviceGroupRuleSkipsIngressWhenSingleRuleOwnsPort(t *testing.T) {
 	if err != nil {
 		t.Fatalf("enabled rules: %v", err)
 	}
-	if len(configs) != 0 {
-		t.Fatalf("expected group rule skipped because single rule owns port, got %+v", configs)
+	if len(configs) != 1 || configs[0].RuleID != groupRule.ID {
+		t.Fatalf("expected group rule even when single rule has same port, got %+v", configs)
+	}
+
+	views, err := NewGroupService(gdb, 19999).BuildDeviceGroupRuleViews(
+		[]paneldb.DeviceGroupRule{groupRule},
+		nil,
+		nil,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("build device group views: %v", err)
+	}
+	if len(views) != 1 {
+		t.Fatalf("expected one view, got %+v", views)
+	}
+	if views[0].ConflictMachines != 0 {
+		t.Fatalf("single rules must not count as device group conflicts, got %+v", views[0])
 	}
 }
 

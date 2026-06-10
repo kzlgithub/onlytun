@@ -401,14 +401,12 @@ func (s *GroupService) buildDeviceGroupRuleView(rule paneldb.DeviceGroupRule, st
 
 	var conflicts int64
 	if len(ingressMachines) > 0 {
-		for _, machine := range ingressMachines {
-			conflict, err := (&RuleService{db: s.db, tunnelPort: s.tunnelPort}).findIngressPortConflict("", machine.ID, rule.IngressPort, rule.Protocol)
-			if err != nil {
-				return DeviceGroupRuleView{}, err
-			}
-			if conflict != nil {
-				conflicts++
-			}
+		conflict, err := s.findGroupRuleConflict(rule.ID, rule.IngressGroupID, rule.IngressPort, rule.Protocol)
+		if err != nil {
+			return DeviceGroupRuleView{}, err
+		}
+		if conflict != nil {
+			conflicts = int64(len(ingressMachines))
 		}
 	}
 	effective := int64(len(ingressMachines)) - conflicts

@@ -28,6 +28,7 @@
           <button :class="{ active: activeTab === 'rules' }" type="button" @click="activeTab = 'rules'">规则</button>
           <button :class="{ active: activeTab === 'groups' }" type="button" @click="activeTab = 'groups'">分组</button>
         </div>
+        <span class="group-tab-summary">{{ tabSummary }}</span>
         <div class="toolbar group-toolbar">
           <el-input v-model="keyword" class="search-input" clearable :placeholder="searchPlaceholder" />
           <el-button :loading="manualRefreshing || groupStore.refreshing" round @click="manualRefresh">
@@ -140,15 +141,6 @@
       </div>
 
       <div v-else class="tab-content">
-        <div class="section-head">
-          <div>
-            <h3 class="section-title">设备组转发规则</h3>
-            <p class="section-meta">
-              {{ groupStore.modeEnabled ? '设备组模式开启后，仅设备组规则会下发到 Agent。' : '当前设备组模式关闭，组规则暂不下发。' }}
-            </p>
-          </div>
-        </div>
-
       <el-table
         ref="ruleTableRef"
         :data="filteredRules"
@@ -537,6 +529,19 @@ const filteredRules = computed(() => {
       .toLowerCase()
       .includes(q),
   );
+});
+const tabSummary = computed(() => {
+  const hasKeyword = keyword.value.trim().length > 0;
+  if (activeTab.value === 'groups') {
+    const ingressTotal = groupStore.ingressGroups.length;
+    const egressTotal = groupStore.egressGroups.length;
+    const filteredTotal = filteredIngressGroups.value.length + filteredEgressGroups.value.length;
+    const total = ingressTotal + egressTotal;
+    if (hasKeyword) return `筛选 ${filteredTotal} / ${total} 个分组`;
+    return `入口组 ${ingressTotal} · 出口组 ${egressTotal}`;
+  }
+  if (hasKeyword) return `筛选 ${filteredRules.value.length} / ${groupStore.rules.length} 条规则`;
+  return `共 ${groupStore.rules.length} 条规则`;
 });
 const detailRule = computed(() => detailDialog.rule);
 const detailIngressGroup = computed(() => findGroupById(detailRule.value?.ingress_group_id));
@@ -1371,6 +1376,21 @@ onMounted(async () => {
 
 .group-tab-switch button:hover {
   color: #1f6feb;
+}
+
+.group-tab-summary {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  min-height: 30px;
+  padding: 0 12px;
+  border: 1px solid rgba(113, 135, 166, 0.14);
+  border-radius: 999px;
+  background: rgba(248, 251, 255, 0.86);
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 .group-toolbar {

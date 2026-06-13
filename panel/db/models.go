@@ -33,6 +33,8 @@ type Machine struct {
 	UptimeSeconds       uint64    `gorm:"not null;default:0" json:"uptime_seconds"`
 	NetBytesUp          uint64    `gorm:"not null;default:0" json:"net_bytes_up"`
 	NetBytesDown        uint64    `gorm:"not null;default:0" json:"net_bytes_down"`
+	NetUpBps            uint64    `gorm:"not null;default:0" json:"net_up_bps"`
+	NetDownBps          uint64    `gorm:"not null;default:0" json:"net_down_bps"`
 	LastHeartbeat       time.Time `gorm:"index" json:"last_heartbeat"`
 	OnlineSince         time.Time `json:"online_since"`
 	CreatedAt           time.Time `json:"created_at"`

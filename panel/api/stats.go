@@ -24,6 +24,14 @@ type heartbeatRequest struct {
 	NetBytesDown        uint64  `json:"net_bytes_down"`
 }
 
+type netStatsRequest struct {
+	MachineID    string `json:"machine_id"`
+	NetBytesUp   uint64 `json:"net_bytes_up"`
+	NetBytesDown uint64 `json:"net_bytes_down"`
+	NetUpBps     uint64 `json:"net_up_bps"`
+	NetDownBps   uint64 `json:"net_down_bps"`
+}
+
 type statsRequest struct {
 	MachineID string                  `json:"machine_id"`
 	Stats     []service.AgentStatItem `json:"stats"`
@@ -86,6 +94,30 @@ func (h *Handler) AgentHeartbeat(c *gin.Context) {
 			status = http.StatusBadRequest
 		}
 		c.JSON(status, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+func (h *Handler) AgentNetStats(c *gin.Context) {
+	machine, ok := MachineFromContext(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	var req netStatsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		return
+	}
+	if req.MachineID != "" && req.MachineID != machine.ID {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "machine id mismatch"})
+		return
+	}
+
+	if err := h.Machines.UpdateNetStats(machine, req.NetBytesUp, req.NetBytesDown, req.NetUpBps, req.NetDownBps); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true})

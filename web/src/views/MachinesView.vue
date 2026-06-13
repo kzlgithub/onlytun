@@ -103,7 +103,7 @@ import {
 } from 'element-plus';
 import { ArrowDown, CopyDocument, RefreshRight } from '@element-plus/icons-vue';
 import { useMachineStore } from '../stores/machine';
-import { formatBytes, roleLabel } from '../utils/format';
+import { formatBytes, formatSpeed, roleLabel } from '../utils/format';
 
 const machineStore = useMachineStore();
 
@@ -484,8 +484,8 @@ const MachineGroup = defineComponent({
               ])
             : h('div', null, [
                 h('div', { class: 'compact-metrics' }, [
-                  metricPill('上传', machineTraffic(machine).up, 'blue'),
-                  metricPill('下载', machineTraffic(machine).down, 'green'),
+                  metricPill('上传', machineTraffic(machine).up, machineTraffic(machine).upSpeed, 'blue'),
+                  metricPill('下载', machineTraffic(machine).down, machineTraffic(machine).downSpeed, 'green'),
                 ]),
 
                 h('div', { class: 'machine-detail' }, [
@@ -546,10 +546,11 @@ const MachineGroup = defineComponent({
   },
 });
 
-function metricPill(label, value, tone) {
+function metricPill(label, value, speed, tone) {
   return h('div', { class: ['metric-pill', tone] }, [
     h('span', { class: 'metric-label' }, label),
     h('strong', value),
+    h('span', { class: 'metric-speed' }, speed),
   ]);
 }
 
@@ -623,6 +624,8 @@ function machineTraffic(machine) {
     return {
       up: formatBytes(machine.demo_net.up || 0),
       down: formatBytes(machine.demo_net.down || 0),
+      upSpeed: `↑ ${formatSpeed(machine.demo_speed?.up || 0)}`,
+      downSpeed: `↓ ${formatSpeed(machine.demo_speed?.down || 0)}`,
     };
   }
   const up = Number(machine.net_bytes_up || 0);
@@ -630,6 +633,8 @@ function machineTraffic(machine) {
   return {
     up: formatBytes(up),
     down: formatBytes(down),
+    upSpeed: `↑ ${formatSpeed(machine.net_up_bps || 0)}`,
+    downSpeed: `↓ ${formatSpeed(machine.net_down_bps || 0)}`,
   };
 }
 
@@ -1248,8 +1253,19 @@ function buildDemoMachines() {
 }
 
 .machines-page .metric-pill strong {
+  display: block;
   color: #15243a;
   font-size: 15px;
+}
+
+.machines-page .metric-speed {
+  display: block;
+  margin-top: 5px;
+  color: #6c7e95;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
 }
 
 .machines-page .machine-detail {

@@ -503,6 +503,21 @@ func (s *MachineService) UpdateHeartbeat(machine *paneldb.Machine, role, ip, age
 	return s.reconcileUpdateTaskFromHeartbeat(machine.ID, strings.TrimSpace(agentVersion), time.Now())
 }
 
+func (s *MachineService) UpdateNetStats(machine *paneldb.Machine, netBytesUp, netBytesDown, netUpBps, netDownBps uint64) error {
+	if machine == nil {
+		return ErrMachineNotFound
+	}
+
+	return s.db.Model(&paneldb.Machine{}).
+		Where("id = ?", machine.ID).
+		Updates(map[string]any{
+			"net_bytes_up":   netBytesUp,
+			"net_bytes_down": netBytesDown,
+			"net_up_bps":     netUpBps,
+			"net_down_bps":   netDownBps,
+		}).Error
+}
+
 func (s *MachineService) MarkOfflineBefore(cutoff time.Time) error {
 	return s.db.Model(&paneldb.Machine{}).
 		Where("online = ? AND last_heartbeat < ?", true, cutoff).

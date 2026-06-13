@@ -113,6 +113,7 @@ func main() {
 	protectedAgent := agentGroup.Group("/")
 	protectedAgent.Use(handler.RequireMachineToken())
 	protectedAgent.POST("/heartbeat", handler.AgentHeartbeat)
+	protectedAgent.POST("/net-stats", handler.AgentNetStats)
 	protectedAgent.POST("/stats", handler.AgentStats)
 	protectedAgent.POST("/update-claim", handler.AgentClaimUpdate)
 	protectedAgent.POST("/update-result", handler.AgentUpdateResult)
@@ -160,7 +161,7 @@ func skipAccessLog(c *gin.Context) bool {
 	}
 
 	switch c.Request.URL.Path {
-	case "/api/agent/heartbeat", "/api/agent/stats", "/api/agent/config", "/api/agent/update-claim", "/api/agent/update-result":
+	case "/api/agent/heartbeat", "/api/agent/net-stats", "/api/agent/stats", "/api/agent/config", "/api/agent/update-claim", "/api/agent/update-result":
 		return true
 	default:
 		return false

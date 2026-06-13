@@ -77,6 +77,7 @@ func NewReporter(panelURL, machineID, role, token, accessAddr string, version ..
 // Start 开始定期上报（心跳和统计均每30秒一次），非阻塞。
 func (r *Reporter) Start(ctx context.Context) {
 	go r.runHeartbeatLoop(ctx)
+	go r.runNetStatsLoop(ctx)
 	go r.runStatsLoop(ctx)
 }
 
@@ -155,10 +156,18 @@ func (r *Reporter) sendHeartbeat(ctx context.Context) {
 }
 
 func sampleNetBytes() (uint64, uint64) {
-	counters, err := gopsnet.IOCounters(true)
+	bytesUp, bytesDown, err := sampleNetBytesWithError()
 	if err != nil {
 		log.Printf("[WARN] reporter heartbeat network sample failed: %v", err)
 		return 0, 0
+	}
+	return bytesUp, bytesDown
+}
+
+func sampleNetBytesWithError() (uint64, uint64, error) {
+	counters, err := gopsnet.IOCounters(true)
+	if err != nil {
+		return 0, 0, err
 	}
 	var bytesUp, bytesDown uint64
 	for _, item := range counters {
@@ -168,7 +177,7 @@ func sampleNetBytes() (uint64, uint64) {
 		bytesUp += item.BytesSent
 		bytesDown += item.BytesRecv
 	}
-	return bytesUp, bytesDown
+	return bytesUp, bytesDown, nil
 }
 
 func firstCPUPercent(values []float64) float64 {

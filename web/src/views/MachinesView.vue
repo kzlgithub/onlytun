@@ -166,10 +166,10 @@ const installDialogTitle = computed(() => {
 
 async function loadData(options = {}) {
   if (localDemoMode) {
-    const { initial = false, manual = false } = options;
+    const { initial = false, manual = false, silent = false } = options;
     initialLoading.value = false;
     manualRefreshing.value = manual;
-    refreshing.value = !initial && !manual;
+    refreshing.value = !initial && !manual && !silent;
     await new Promise((resolve) => window.setTimeout(resolve, manual ? 650 : 520));
     manualRefreshing.value = false;
     refreshing.value = false;
@@ -188,10 +188,10 @@ async function loadData(options = {}) {
     return loadingPromise;
   }
 
-  const { initial = false, manual = false } = options;
+  const { initial = false, manual = false, silent = false } = options;
   initialLoading.value = initial;
   manualRefreshing.value = manual;
-  refreshing.value = !initial && !manual;
+  refreshing.value = !initial && !manual && !silent;
 
   const tasks = [machineStore.fetchMachines()];
   loadingPromise = Promise.all(tasks);
@@ -394,7 +394,7 @@ onMounted(async () => {
   }
   timer = window.setInterval(() => {
     nowTick.value = Date.now();
-    loadData();
+    loadData({ silent: true });
   }, 1000);
 });
 
@@ -548,9 +548,11 @@ const MachineGroup = defineComponent({
 
 function metricPill(label, value, speed, tone) {
   return h('div', { class: ['metric-pill', tone] }, [
-    h('span', { class: 'metric-label' }, label),
+    h('div', { class: 'metric-pill-head' }, [
+      h('span', { class: 'metric-label' }, label),
+      h('span', { class: 'metric-speed' }, speed),
+    ]),
     h('strong', value),
-    h('span', { class: 'metric-speed' }, speed),
   ]);
 }
 
@@ -1232,7 +1234,8 @@ function buildDemoMachines() {
 }
 
 .machines-page .metric-pill {
-  padding: 10px 12px;
+  min-width: 0;
+  padding: 10px 12px 12px;
   border-radius: 14px;
   background: #f2f6fc;
 }
@@ -1245,11 +1248,18 @@ function buildDemoMachines() {
   background: rgba(70, 179, 137, 0.1);
 }
 
+.machines-page .metric-pill-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
 .machines-page .metric-label {
-  display: block;
-  margin-bottom: 4px;
   color: #72829d;
   font-size: 12px;
+  line-height: 1.2;
 }
 
 .machines-page .metric-pill strong {
@@ -1259,13 +1269,24 @@ function buildDemoMachines() {
 }
 
 .machines-page .metric-speed {
-  display: block;
-  margin-top: 5px;
-  color: #6c7e95;
-  font-size: 12px;
+  flex: 0 0 auto;
+  max-width: 76px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  color: #1f6feb;
+  background: rgba(64, 158, 255, 0.12);
+  font-size: 11px;
   font-weight: 700;
   line-height: 1.2;
+  text-align: right;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.machines-page .metric-pill.green .metric-speed {
+  color: #16845f;
+  background: rgba(70, 179, 137, 0.16);
 }
 
 .machines-page .machine-detail {

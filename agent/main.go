@@ -360,11 +360,24 @@ report_result() {
 }
 
 run_update() {
-if [ -f /root/install.sh ]; then
-  bash /root/install.sh --update
-else
-  bash <(curl -fsSL https://raw.githubusercontent.com/kzlgithub/onlytun/main/scripts/install.sh) --update
-fi
+  local remote_script="/tmp/onlytun-install-update-${TASK_ID}.sh"
+  if curl --http1.1 --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 60 -fsSL \
+    https://raw.githubusercontent.com/kzlgithub/onlytun/main/scripts/install.sh -o "$remote_script"; then
+    chmod +x "$remote_script"
+    bash "$remote_script" --update
+    local code=$?
+    rm -f "$remote_script"
+    return "$code"
+  fi
+
+  echo "[WARN] failed to download latest install.sh, falling back to local /root/install.sh"
+  if [ -f /root/install.sh ]; then
+    bash /root/install.sh --update
+    return $?
+  fi
+
+  echo "[ERROR] no install.sh available for agent update"
+  return 1
 }
 
 {

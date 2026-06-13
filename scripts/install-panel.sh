@@ -18,6 +18,8 @@ CONFIG_DIR="/etc/onlytun"
 SERVICE_NAME="onlytun-panel"
 SERVICE_PATH="/etc/systemd/system/${SERVICE_NAME}.service"
 RELEASE_BASE_URL="${ONLYTUN_RELEASE_BASE_URL:-https://github.com/kzlgithub/onlytun/releases/latest/download}"
+DOWNLOAD_CONNECT_TIMEOUT="${ONLYTUN_DOWNLOAD_CONNECT_TIMEOUT:-10}"
+DOWNLOAD_MAX_TIME="${ONLYTUN_DOWNLOAD_MAX_TIME:-300}"
 
 usage() {
   cat <<EOF
@@ -198,7 +200,7 @@ download_panel_to() {
   local dest="$1"
   local url="${RELEASE_BASE_URL}/onlytun-panel-linux-${ARCH}"
   info "Downloading panel binary: ${url}"
-  curl --http1.1 --retry 5 --retry-delay 2 -fL# "$url" -o "$dest" || fail "Failed to download panel binary. Check network or GitHub Release."
+  curl --http1.1 --retry 5 --retry-delay 2 --connect-timeout "$DOWNLOAD_CONNECT_TIMEOUT" --max-time "$DOWNLOAD_MAX_TIME" -fL# "$url" -o "$dest" || fail "Failed to download panel binary. Check network or GitHub Release."
 }
 
 download_panel() {

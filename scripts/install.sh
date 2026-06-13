@@ -23,6 +23,8 @@ SERVICE_PATH="/etc/systemd/system/onlytun-agent.service"
 SYSCTL_PATH="/etc/sysctl.d/99-onlytun-tcp.conf"
 DEFAULT_TUNNEL_ADDR="0.0.0.0:19999"
 RELEASE_BASE_URL="${ONLYTUN_RELEASE_BASE_URL:-https://github.com/kzlgithub/onlytun/releases/latest/download}"
+DOWNLOAD_CONNECT_TIMEOUT="${ONLYTUN_DOWNLOAD_CONNECT_TIMEOUT:-10}"
+DOWNLOAD_MAX_TIME="${ONLYTUN_DOWNLOAD_MAX_TIME:-300}"
 
 usage() {
   cat <<EOF
@@ -268,7 +270,7 @@ download_agent_to() {
   local dest="$1"
   local url="${RELEASE_BASE_URL}/onlytun-agent-linux-${ARCH}"
   info "Downloading Agent binary: ${url}"
-  curl --http1.1 --retry 5 --retry-delay 2 -fL# "$url" -o "$dest" || fail "Failed to download Agent binary."
+  curl --http1.1 --retry 5 --retry-delay 2 --connect-timeout "$DOWNLOAD_CONNECT_TIMEOUT" --max-time "$DOWNLOAD_MAX_TIME" -fL# "$url" -o "$dest" || fail "Failed to download Agent binary."
 }
 
 download_agent() {

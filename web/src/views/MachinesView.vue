@@ -97,13 +97,12 @@ import {
   ElDropdownMenu,
   ElMessage,
   ElMessageBox,
-  ElProgress,
   ElTag,
   ElTooltip,
 } from 'element-plus';
 import { ArrowDown, CopyDocument, RefreshRight } from '@element-plus/icons-vue';
 import { useMachineStore } from '../stores/machine';
-import { formatBytes, formatSpeed, roleLabel } from '../utils/format';
+import { roleLabel } from '../utils/format';
 
 const machineStore = useMachineStore();
 
@@ -413,6 +412,7 @@ const MachineGroup = defineComponent({
   setup(props, { emit }) {
     const renderMachine = (machine) => {
       const updating = isUpdating(machine.last_update_task);
+      const traffic = machineTraffic(machine);
       return h(
         'article',
         {
@@ -484,14 +484,26 @@ const MachineGroup = defineComponent({
               ])
             : h('div', null, [
                 h('div', { class: 'compact-metrics' }, [
-                  metricPill('上传', machineTraffic(machine).up, machineTraffic(machine).upSpeed, 'blue'),
-                  metricPill('下载', machineTraffic(machine).down, machineTraffic(machine).downSpeed, 'green'),
+                  metricPill('上传', traffic.up, 'blue'),
+                  metricPill('下载', traffic.down, 'green'),
+                ]),
+
+                h('div', { class: 'speed-panel' }, [
+                  h('div', { class: 'speed-title' }, [
+                    h('strong', '实时网速'),
+                    h('span', '1 MB/s 满格'),
+                  ]),
+                  speedRow('上传', traffic.upSpeed, traffic.upSpeedPercent, 'upload'),
+                  speedRow('下载', traffic.downSpeed, traffic.downSpeedPercent, 'download'),
+                ]),
+
+                h('div', { class: 'resource-strip' }, [
+                  resourceMetric('CPU', Number(machine.cpu_percent || 0), 'cpu'),
+                  resourceMetric('内存', Number(machine.mem_percent || 0), 'mem'),
+                  resourceMetric('硬盘', optionalPercent(machine.disk_percent), 'disk'),
                 ]),
 
                 h('div', { class: 'machine-detail' }, [
-                  progressRow('CPU', Number(machine.cpu_percent || 0), 'cpu'),
-                  progressRow('内存', Number(machine.mem_percent || 0), 'mem'),
-                  progressRow('硬盘', optionalPercent(machine.disk_percent), 'disk'),
                   machine.is_ix || machine.tunnel_advertise_addr
                     ? detailRow('隧道地址', machine.tunnel_advertise_addr || '--')
                     : null,
@@ -546,28 +558,26 @@ const MachineGroup = defineComponent({
   },
 });
 
-function metricPill(label, value, speed, tone) {
+function metricPill(label, value, tone) {
   return h('div', { class: ['metric-pill', tone] }, [
-    h('div', { class: 'metric-pill-head' }, [
-      h('span', { class: 'metric-label' }, label),
-      h('span', { class: 'metric-speed' }, speed),
-    ]),
+    h('span', { class: 'metric-label' }, label),
     h('strong', value),
   ]);
 }
 
-function progressRow(label, value, type) {
+function speedRow(label, value, percent, type) {
+  return h('div', { class: ['speed-row', type], style: { '--speed-percent': `${percent}%` } }, [
+    h('span', { class: 'speed-label' }, label),
+    h('div', { class: 'speed-track' }, h('span', { class: 'speed-fill' })),
+    h('span', { class: 'speed-value' }, value),
+  ]);
+}
+
+function resourceMetric(label, value, type) {
   const hasValue = Number.isFinite(value);
-  return h('div', { class: 'meter-row' }, [
-    h('span', { class: 'meter-label' }, label),
-    hasValue
-      ? h(ElProgress, {
-          percentage: Math.max(0, Math.min(100, Number(value.toFixed(1)))),
-          strokeWidth: 10,
-          showText: true,
-          class: `meter-progress ${type}`,
-        })
-      : h('span', { class: 'unknown-value' }, '--'),
+  return h('div', { class: ['resource-metric', type] }, [
+    h('span', label),
+    h('strong', hasValue ? `${trimPercent(value)}%` : '--'),
   ]);
 }
 
@@ -621,23 +631,68 @@ function optionalPercent(value) {
   return value !== undefined && value !== null && Number.isFinite(numeric) ? numeric : Number.NaN;
 }
 
+function trimPercent(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return '--';
+  }
+  return numeric >= 10 ? numeric.toFixed(0) : numeric.toFixed(1).replace(/\.0$/, '');
+}
+
 function machineTraffic(machine) {
   if (machine.demo_net) {
+    const upSpeed = Number(machine.demo_speed?.up || 0);
+    const downSpeed = Number(machine.demo_speed?.down || 0);
     return {
-      up: formatBytes(machine.demo_net.up || 0),
-      down: formatBytes(machine.demo_net.down || 0),
-      upSpeed: `↑ ${formatSpeed(machine.demo_speed?.up || 0)}`,
-      downSpeed: `↓ ${formatSpeed(machine.demo_speed?.down || 0)}`,
+      up: formatCardBytes(machine.demo_net.up || 0),
+      down: formatCardBytes(machine.demo_net.down || 0),
+      upSpeed: formatCardSpeed(upSpeed),
+      downSpeed: formatCardSpeed(downSpeed),
+      upSpeedPercent: speedPercent(upSpeed),
+      downSpeedPercent: speedPercent(downSpeed),
     };
   }
   const up = Number(machine.net_bytes_up || 0);
   const down = Number(machine.net_bytes_down || 0);
+  const upSpeed = Number(machine.net_up_bps || 0);
+  const downSpeed = Number(machine.net_down_bps || 0);
   return {
-    up: formatBytes(up),
-    down: formatBytes(down),
-    upSpeed: `↑ ${formatSpeed(machine.net_up_bps || 0)}`,
-    downSpeed: `↓ ${formatSpeed(machine.net_down_bps || 0)}`,
+    up: formatCardBytes(up),
+    down: formatCardBytes(down),
+    upSpeed: formatCardSpeed(upSpeed),
+    downSpeed: formatCardSpeed(downSpeed),
+    upSpeedPercent: speedPercent(upSpeed),
+    downSpeedPercent: speedPercent(downSpeed),
   };
+}
+
+function speedPercent(bytesPerSecond = 0) {
+  const oneMiB = 1024 * 1024;
+  return Math.max(0, Math.min(100, Math.round((Number(bytesPerSecond) / oneMiB) * 100)));
+}
+
+function formatCardBytes(value = 0) {
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let num = Number(value) || 0;
+  let index = 0;
+  while (num >= 1024 && index < units.length - 1) {
+    num /= 1024;
+    index += 1;
+  }
+  const digits = index <= 1 || num >= 100 ? 0 : num >= 10 ? 1 : 2;
+  return `${num.toFixed(digits)}${units[index]}`;
+}
+
+function formatCardSpeed(value = 0) {
+  const units = ['B/s', 'K/s', 'M/s', 'G/s'];
+  let num = Number(value) || 0;
+  let index = 0;
+  while (num >= 1024 && index < units.length - 1) {
+    num /= 1024;
+    index += 1;
+  }
+  const digits = index === 0 || num >= 10 ? 0 : 1;
+  return `${num.toFixed(digits)}${units[index]}`;
 }
 
 function machineOnlineTime(machine, now) {
@@ -1235,58 +1290,162 @@ function buildDemoMachines() {
 
 .machines-page .metric-pill {
   min-width: 0;
-  padding: 10px 12px 12px;
-  border-radius: 14px;
-  background: #f2f6fc;
+  min-height: 82px;
+  padding: 13px 13px 12px;
+  border: 1px solid rgba(88, 132, 188, 0.1);
+  border-radius: 18px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.34)),
+    #e8f2ff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
 }
 
 .machines-page .metric-pill.blue {
-  background: rgba(64, 158, 255, 0.1);
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.34)),
+    #e8f2ff;
 }
 
 .machines-page .metric-pill.green {
-  background: rgba(70, 179, 137, 0.1);
-}
-
-.machines-page .metric-pill-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 6px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.34)),
+    #e7f7ef;
 }
 
 .machines-page .metric-label {
-  color: #72829d;
+  display: block;
+  margin-bottom: 10px;
+  color: #697991;
   font-size: 12px;
-  line-height: 1.2;
+  font-weight: 750;
 }
 
 .machines-page .metric-pill strong {
   display: block;
-  color: #15243a;
-  font-size: 15px;
+  color: #13243b;
+  font-size: 20px;
+  font-weight: 930;
+  letter-spacing: -0.045em;
+  line-height: 1.05;
+  white-space: nowrap;
 }
 
-.machines-page .metric-speed {
-  flex: 0 0 auto;
-  max-width: 76px;
-  padding: 3px 7px;
-  border-radius: 999px;
-  color: #1f6feb;
-  background: rgba(64, 158, 255, 0.12);
+.machines-page .speed-panel {
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid rgba(112, 142, 180, 0.12);
+  border-radius: 20px;
+  background: rgba(248, 251, 255, 0.76);
+}
+
+.machines-page .speed-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.machines-page .speed-title strong {
+  color: #213750;
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.machines-page .speed-title span {
+  color: #8795a8;
   font-size: 11px;
   font-weight: 700;
-  line-height: 1.2;
-  text-align: right;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
-.machines-page .metric-pill.green .metric-speed {
-  color: #16845f;
-  background: rgba(70, 179, 137, 0.16);
+.machines-page .speed-row {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) 68px;
+  align-items: center;
+  gap: 10px;
+  min-height: 28px;
+}
+
+.machines-page .speed-row + .speed-row {
+  margin-top: 9px;
+}
+
+.machines-page .speed-row.upload {
+  --speed-accent: #347eff;
+}
+
+.machines-page .speed-row.download {
+  --speed-accent: #28b985;
+}
+
+.machines-page .speed-label {
+  color: #687991;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.machines-page .speed-track {
+  height: 9px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e6edf6;
+  box-shadow: inset 0 0 0 1px rgba(95, 120, 154, 0.06);
+}
+
+.machines-page .speed-fill {
+  display: block;
+  width: var(--speed-percent);
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--speed-accent) 60%, white), var(--speed-accent));
+  box-shadow: 0 0 16px color-mix(in srgb, var(--speed-accent) 28%, transparent);
+}
+
+.machines-page .speed-value {
+  justify-self: end;
+  color: var(--speed-accent);
+  font-size: 12px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.machines-page .resource-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid rgba(112, 142, 180, 0.12);
+  border-radius: 18px;
+  background: rgba(247, 251, 255, 0.72);
+}
+
+.machines-page .resource-metric span {
+  display: block;
+  margin-bottom: 5px;
+  color: #78889e;
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.machines-page .resource-metric strong {
+  display: block;
+  color: #1a2d47;
+  font-size: 18px;
+  font-weight: 900;
+  letter-spacing: -0.035em;
+  line-height: 1;
+}
+
+.machines-page .resource-metric.cpu strong {
+  color: #347eff;
+}
+
+.machines-page .resource-metric.mem strong {
+  color: #28b985;
+}
+
+.machines-page .resource-metric.disk strong {
+  color: #f59f18;
 }
 
 .machines-page .machine-detail {
@@ -1295,7 +1454,6 @@ function buildDemoMachines() {
   border-top: 1px solid rgba(84, 112, 150, 0.12);
 }
 
-.machines-page .meter-row,
 .machines-page .detail-row {
   display: grid;
   grid-template-columns: 58px minmax(0, 1fr);
@@ -1306,7 +1464,6 @@ function buildDemoMachines() {
   font-size: 13px;
 }
 
-.machines-page .meter-label,
 .machines-page .detail-label {
   color: #6c7c92;
 }
@@ -1489,22 +1646,6 @@ function buildDemoMachines() {
 .command-modal-block pre {
   white-space: pre;
   word-break: normal;
-}
-
-.machines-page .meter-progress .el-progress-bar__outer {
-  background: #e5eaf2;
-}
-
-.machines-page .meter-progress.cpu .el-progress-bar__inner {
-  background: #409eff;
-}
-
-.machines-page .meter-progress.mem .el-progress-bar__inner {
-  background: #46b389;
-}
-
-.machines-page .meter-progress.disk .el-progress-bar__inner {
-  background: #f59e0b;
 }
 
 @media (max-width: 1100px) {

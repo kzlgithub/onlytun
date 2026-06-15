@@ -116,3 +116,52 @@ func TestTodayTotalsForRulesAggregatesCurrentDayOnly(t *testing.T) {
 		t.Fatalf("expected missing total 0, got %d", totals["missing"])
 	}
 }
+
+func TestRecentDailyTrafficForRulesAggregatesRecentDays(t *testing.T) {
+	gdb, err := paneldb.OpenDatabase(filepath.Join(t.TempDir(), "panel.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+
+	now := time.Date(2026, 5, 28, 15, 30, 0, 0, time.UTC)
+	svc := NewStatsService(gdb)
+	if err := gdb.Create(&[]paneldb.TrafficStat{
+		{
+			RuleID:    "rule-1",
+			Hour:      time.Date(2026, 5, 24, 8, 0, 0, 0, time.UTC),
+			BytesUp:   10,
+			BytesDown: 20,
+		},
+		{
+			RuleID:    "rule-2",
+			Hour:      time.Date(2026, 5, 28, 9, 0, 0, 0, time.UTC),
+			BytesUp:   30,
+			BytesDown: 40,
+		},
+		{
+			RuleID:    "rule-1",
+			Hour:      time.Date(2026, 5, 23, 23, 0, 0, 0, time.UTC),
+			BytesUp:   100,
+			BytesDown: 200,
+		},
+	}).Error; err != nil {
+		t.Fatalf("create stats: %v", err)
+	}
+
+	summary, err := svc.RecentDailyTrafficForRules([]string{"rule-1", "rule-2"}, 5, now)
+	if err != nil {
+		t.Fatalf("recent daily traffic: %v", err)
+	}
+	if len(summary.Points) != 5 {
+		t.Fatalf("expected 5 points, got %d", len(summary.Points))
+	}
+	if summary.Total != 100 || summary.TotalUp != 40 || summary.TotalDown != 60 {
+		t.Fatalf("unexpected totals: %+v", summary)
+	}
+	if summary.Points[0].Total != 30 {
+		t.Fatalf("expected first day total 30, got %+v", summary.Points[0])
+	}
+	if summary.Points[4].Total != 70 {
+		t.Fatalf("expected last day total 70, got %+v", summary.Points[4])
+	}
+}

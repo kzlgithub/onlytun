@@ -99,7 +99,18 @@
             <span v-else>{{ row.traffic_limit_bytes > 0 ? formatBytes(row.traffic_limit_bytes) : '无限制' }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="今日流量" width="88" align="center">
+        <el-table-column width="88" align="center">
+          <template #header>
+            <button
+              type="button"
+              class="traffic-sort-header"
+              :class="{ active: todayTrafficSort }"
+              @click="cycleTodayTrafficSort"
+            >
+              <span>今日流量</span>
+              <span class="traffic-sort-icon">{{ trafficSortIcon(todayTrafficSort) }}</span>
+            </button>
+          </template>
           <template #default="{ row }">
             {{ formatBytes(ruleStore.dayTotals[row.id] || 0) }}
           </template>
@@ -196,6 +207,7 @@ const keyword = ref('');
 const initialLoading = ref(false);
 const manualRefreshing = ref(false);
 const refreshing = ref(false);
+const todayTrafficSort = ref(null);
 const dialogVisible = ref(false);
 const editingRule = ref(null);
 const submitting = ref(false);
@@ -218,10 +230,7 @@ const deviceGroupMode = computed(() => groupRuleStore.modeEnabled);
 
 const filteredRules = computed(() => {
   const q = keyword.value.trim().toLowerCase();
-  if (!q) {
-    return ruleStore.rules;
-  }
-  return ruleStore.rules.filter((rule) => {
+  const base = !q ? ruleStore.rules : ruleStore.rules.filter((rule) => {
     const path = buildRoutePath(rule);
     const haystack = [
       rule.name,
@@ -238,7 +247,38 @@ const filteredRules = computed(() => {
       .toLowerCase();
     return haystack.includes(q);
   });
+
+  return sortByTodayTraffic(base, todayTrafficSort.value, (rule) => ruleStore.dayTotals[rule.id] || 0);
 });
+
+function cycleTodayTrafficSort() {
+  if (!todayTrafficSort.value) {
+    todayTrafficSort.value = 'desc';
+  } else if (todayTrafficSort.value === 'desc') {
+    todayTrafficSort.value = 'asc';
+  } else {
+    todayTrafficSort.value = null;
+  }
+}
+
+function trafficSortIcon(direction) {
+  if (direction === 'desc') return '↓';
+  if (direction === 'asc') return '↑';
+  return '↕';
+}
+
+function sortByTodayTraffic(list, direction, getter) {
+  if (!direction) return list;
+  const factor = direction === 'desc' ? -1 : 1;
+  return list
+    .map((item, index) => ({ item, index }))
+    .sort((left, right) => {
+      const diff = Number(getter(left.item) || 0) - Number(getter(right.item) || 0);
+      if (diff !== 0) return diff * factor;
+      return left.index - right.index;
+    })
+    .map(({ item }) => item);
+}
 
 function buildRoutePath(rule) {
   const ingress = machineStore.machineMap[rule.ingress_machine_id];
@@ -763,6 +803,37 @@ onMounted(async () => {
   flex: 0 0 auto;
   font-size: 11px;
   letter-spacing: -1px;
+}
+
+.traffic-sort-header {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 26px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  color: #64748b;
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: color 0.18s ease, background 0.18s ease, border-color 0.18s ease;
+}
+
+.traffic-sort-header:hover,
+.traffic-sort-header.active {
+  color: #1f6feb;
+  background: rgba(64, 158, 255, 0.08);
+  border-color: rgba(64, 158, 255, 0.16);
+}
+
+.traffic-sort-icon {
+  width: 12px;
+  color: inherit;
+  font-size: 12px;
+  line-height: 1;
 }
 
 .rule-actions {

@@ -39,6 +39,25 @@ type StatsSeries struct {
 	TotalDown int64        `json:"total_down"`
 }
 
+type DailyTrafficPoint struct {
+	Date      time.Time `json:"date"`
+	BytesUp   int64     `json:"bytes_up"`
+	BytesDown int64     `json:"bytes_down"`
+	Total     int64     `json:"total"`
+}
+
+type DailyTrafficSummary struct {
+	Points    []DailyTrafficPoint `json:"points"`
+	TotalUp   int64               `json:"total_up"`
+	TotalDown int64               `json:"total_down"`
+	Total     int64               `json:"total"`
+}
+
+type TrafficTotals struct {
+	BytesUp   int64 `json:"bytes_up"`
+	BytesDown int64 `json:"bytes_down"`
+}
+
 func NewStatsService(gdb *gorm.DB) *StatsService {
 	return &StatsService{db: gdb}
 }
@@ -160,7 +179,20 @@ func (s *StatsService) LatestStatsForRules(ruleIDs []string) (map[string]RuleRea
 }
 
 func (s *StatsService) TodayTotalsForRules(ruleIDs []string, now time.Time) (map[string]int64, error) {
+	trafficTotals, err := s.TodayTrafficForRules(ruleIDs, now)
+	if err != nil {
+		return nil, err
+	}
+
 	totals := make(map[string]int64, len(ruleIDs))
+	for ruleID, item := range trafficTotals {
+		totals[ruleID] = item.BytesUp + item.BytesDown
+	}
+	return totals, nil
+}
+
+func (s *StatsService) TodayTrafficForRules(ruleIDs []string, now time.Time) (map[string]TrafficTotals, error) {
+	totals := make(map[string]TrafficTotals, len(ruleIDs))
 	if len(ruleIDs) == 0 {
 		return totals, nil
 	}
@@ -170,21 +202,79 @@ func (s *StatsService) TodayTotalsForRules(ruleIDs []string, now time.Time) (map
 	end := start.Add(24 * time.Hour)
 
 	type row struct {
-		RuleID string
-		Total  int64
+		RuleID    string
+		BytesUp   int64
+		BytesDown int64
 	}
 	var rows []row
 	if err := s.db.Model(&paneldb.TrafficStat{}).
-		Select("rule_id, COALESCE(SUM(bytes_up + bytes_down), 0) AS total").
+		Select("rule_id, COALESCE(SUM(bytes_up), 0) AS bytes_up, COALESCE(SUM(bytes_down), 0) AS bytes_down").
 		Where("rule_id IN ? AND hour >= ? AND hour < ?", ruleIDs, start.UTC(), end.UTC()).
 		Group("rule_id").
 		Scan(&rows).Error; err != nil {
 		return nil, err
 	}
 	for _, item := range rows {
-		totals[item.RuleID] = item.Total
+		totals[item.RuleID] = TrafficTotals{
+			BytesUp:   item.BytesUp,
+			BytesDown: item.BytesDown,
+		}
 	}
 	return totals, nil
+}
+
+func (s *StatsService) RecentDailyTrafficForRules(ruleIDs []string, days int, now time.Time) (*DailyTrafficSummary, error) {
+	if days <= 0 {
+		days = 5
+	}
+	if days > 30 {
+		days = 30
+	}
+
+	location := now.Location()
+	startOfToday := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, location)
+	start := startOfToday.AddDate(0, 0, -(days - 1))
+	end := startOfToday.AddDate(0, 0, 1)
+
+	var rows []paneldb.TrafficStat
+	if len(ruleIDs) > 0 {
+		if err := s.db.Where("rule_id IN ? AND hour >= ? AND hour < ?", ruleIDs, start.UTC(), end.UTC()).Find(&rows).Error; err != nil {
+			return nil, err
+		}
+	}
+
+	byDay := make(map[time.Time]TrafficTotals, len(rows))
+	for _, row := range rows {
+		localDay := row.Hour.In(location)
+		day := time.Date(localDay.Year(), localDay.Month(), localDay.Day(), 0, 0, 0, 0, location)
+		stat := byDay[day]
+		stat.BytesUp += row.BytesUp
+		stat.BytesDown += row.BytesDown
+		byDay[day] = stat
+	}
+
+	points := make([]DailyTrafficPoint, 0, days)
+	var totalUp, totalDown int64
+	for i := 0; i < days; i++ {
+		day := start.AddDate(0, 0, i)
+		stat := byDay[day]
+		point := DailyTrafficPoint{
+			Date:      day,
+			BytesUp:   stat.BytesUp,
+			BytesDown: stat.BytesDown,
+			Total:     stat.BytesUp + stat.BytesDown,
+		}
+		points = append(points, point)
+		totalUp += stat.BytesUp
+		totalDown += stat.BytesDown
+	}
+
+	return &DailyTrafficSummary{
+		Points:    points,
+		TotalUp:   totalUp,
+		TotalDown: totalDown,
+		Total:     totalUp + totalDown,
+	}, nil
 }
 
 func (s *StatsService) GetSeries(ruleID, rangeKey string) (*StatsSeries, error) {

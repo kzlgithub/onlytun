@@ -63,10 +63,12 @@ type RuleRealtimeStat struct {
 
 type RuleView struct {
 	paneldb.ForwardRule
-	RealtimeStat  RuleRealtimeStat `json:"realtime_stat"`
-	TotalBytes    int64            `json:"total_bytes"`
-	TodayBytes    int64            `json:"today_bytes"`
-	LimitExceeded bool             `json:"limit_exceeded"`
+	RealtimeStat   RuleRealtimeStat `json:"realtime_stat"`
+	TotalBytes     int64            `json:"total_bytes"`
+	TodayBytes     int64            `json:"today_bytes"`
+	TodayBytesUp   int64            `json:"today_bytes_up"`
+	TodayBytesDown int64            `json:"today_bytes_down"`
+	LimitExceeded  bool             `json:"limit_exceeded"`
 }
 
 func NewRuleService(gdb *gorm.DB, tunnelPort int) *RuleService {

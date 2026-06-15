@@ -3,7 +3,9 @@ package api
 import (
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/onlytun/panel/service"
@@ -63,6 +65,60 @@ func (h *Handler) GetRuleStats(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, series)
+}
+
+func (h *Handler) GetRecentTraffic(c *gin.Context) {
+	scope := c.DefaultQuery("scope", "rules")
+	days := 5
+	if rawDays := strings.TrimSpace(c.Query("days")); rawDays != "" {
+		parsed, err := strconv.Atoi(rawDays)
+		if err != nil || parsed <= 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid days"})
+			return
+		}
+		days = parsed
+	}
+
+	var ruleIDs []string
+	switch scope {
+	case "rules":
+		rules, err := h.Rules.ListRules()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		ruleIDs = make([]string, 0, len(rules))
+		for _, rule := range rules {
+			ruleIDs = append(ruleIDs, rule.ID)
+		}
+	case "group_rules":
+		rules, err := h.Groups.ListDeviceGroupRules()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		ruleIDs = make([]string, 0, len(rules))
+		for _, rule := range rules {
+			ruleIDs = append(ruleIDs, rule.ID)
+		}
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid scope"})
+		return
+	}
+
+	summary, err := h.Stats.RecentDailyTrafficForRules(ruleIDs, days, time.Now())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"scope":      scope,
+		"rule_count": len(ruleIDs),
+		"points":     summary.Points,
+		"total_up":   summary.TotalUp,
+		"total_down": summary.TotalDown,
+		"total":      summary.Total,
+	})
 }
 
 func (h *Handler) AgentHeartbeat(c *gin.Context) {

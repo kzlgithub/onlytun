@@ -207,7 +207,18 @@
             {{ row.online_egress_count || 0 }}
           </template>
         </el-table-column>
-        <el-table-column label="今日流量" width="130">
+        <el-table-column width="130">
+          <template #header>
+            <button
+              type="button"
+              class="traffic-sort-header"
+              :class="{ active: todayTrafficSort }"
+              @click="cycleTodayTrafficSort"
+            >
+              <span>今日流量</span>
+              <span class="traffic-sort-icon">{{ trafficSortIcon(todayTrafficSort) }}</span>
+            </button>
+          </template>
           <template #default="{ row }">
             {{ formatBytes(row.today_bytes || 0) }}
           </template>
@@ -453,6 +464,7 @@ const keyword = ref('');
 const activeTab = ref('rules');
 const initialLoading = ref(false);
 const manualRefreshing = ref(false);
+const todayTrafficSort = ref(null);
 const submitting = ref(false);
 const modeSaving = ref(false);
 const groupFormRef = ref(null);
@@ -513,8 +525,7 @@ const filteredIngressGroups = computed(() => filterGroups(groupStore.ingressGrou
 const filteredEgressGroups = computed(() => filterGroups(groupStore.egressGroups));
 const filteredRules = computed(() => {
   const q = keyword.value.trim().toLowerCase();
-  if (!q) return groupStore.rules;
-  return groupStore.rules.filter((rule) =>
+  const base = !q ? groupStore.rules : groupStore.rules.filter((rule) =>
     [
       rule.name,
       rule.ingress_group_name,
@@ -529,7 +540,38 @@ const filteredRules = computed(() => {
       .toLowerCase()
       .includes(q),
   );
+
+  return sortByTodayTraffic(base, todayTrafficSort.value, (rule) => rule.today_bytes || 0);
 });
+
+function cycleTodayTrafficSort() {
+  if (!todayTrafficSort.value) {
+    todayTrafficSort.value = 'desc';
+  } else if (todayTrafficSort.value === 'desc') {
+    todayTrafficSort.value = 'asc';
+  } else {
+    todayTrafficSort.value = null;
+  }
+}
+
+function trafficSortIcon(direction) {
+  if (direction === 'desc') return '↓';
+  if (direction === 'asc') return '↑';
+  return '↕';
+}
+
+function sortByTodayTraffic(list, direction, getter) {
+  if (!direction) return list;
+  const factor = direction === 'desc' ? -1 : 1;
+  return list
+    .map((item, index) => ({ item, index }))
+    .sort((left, right) => {
+      const diff = Number(getter(left.item) || 0) - Number(getter(right.item) || 0);
+      if (diff !== 0) return diff * factor;
+      return left.index - right.index;
+    })
+    .map(({ item }) => item);
+}
 const tabSummary = computed(() => {
   const hasKeyword = keyword.value.trim().length > 0;
   if (activeTab.value === 'groups') {
@@ -693,6 +735,8 @@ function loadDemoData() {
       conflict_machines: 0,
       online_egress_count: 2,
       today_bytes: 12884901888,
+      today_bytes_up: 5368709120,
+      today_bytes_down: 7516192768,
       traffic_limit_bytes: 0,
     },
   ];
@@ -1131,10 +1175,13 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  align-self: flex-end;
   flex: 0 0 auto;
+  width: fit-content;
   min-height: 36px;
   margin-top: -62px;
   margin-bottom: 26px;
+  pointer-events: none;
 }
 
 .mode-toggle-pill {
@@ -1150,6 +1197,7 @@ onMounted(async () => {
     linear-gradient(135deg, #e8f4ff 0%, #dbeeff 100%);
   color: #1d4ed8;
   cursor: pointer;
+  pointer-events: auto;
   user-select: none;
   box-shadow:
     0 2px 12px rgba(59, 130, 246, 0.15),
@@ -1571,6 +1619,37 @@ onMounted(async () => {
 .rule-name {
   color: #1f6feb;
   font-weight: 700;
+}
+
+.traffic-sort-header {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 26px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  color: #64748b;
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: color 0.18s ease, background 0.18s ease, border-color 0.18s ease;
+}
+
+.traffic-sort-header:hover,
+.traffic-sort-header.active {
+  color: #1f6feb;
+  background: rgba(64, 158, 255, 0.08);
+  border-color: rgba(64, 158, 255, 0.16);
+}
+
+.traffic-sort-icon {
+  width: 12px;
+  color: inherit;
+  font-size: 12px;
+  line-height: 1;
 }
 
 .path-line {

@@ -133,7 +133,7 @@ func (h *Handler) ListDeviceGroupRules(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	todayTotalsMap, err := h.Stats.TodayTotalsForRules(ids, time.Now())
+	todayTotalsMap, err := h.Stats.TodayTrafficForRules(ids, time.Now())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

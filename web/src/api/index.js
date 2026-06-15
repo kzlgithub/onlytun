@@ -153,4 +153,9 @@ export const statsApi = {
       params: { range },
     });
   },
+  getRecentTraffic(scope, days = 5) {
+    return api.get('/api/traffic/recent', {
+      params: { scope, days },
+    });
+  },
 };

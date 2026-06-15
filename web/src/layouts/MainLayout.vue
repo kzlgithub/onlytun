@@ -51,8 +51,18 @@
 
     <section class="main-area">
       <header class="topbar">
-        <div>
+        <div class="topbar-title-row">
           <h2>{{ currentTitle }}</h2>
+          <button
+            v-if="todayTrafficSummary"
+            type="button"
+            class="today-traffic-summary"
+            aria-label="查看最近五天流量"
+            title="点击查看最近五天流量"
+            @click.stop.prevent="openRecentTrafficDialog"
+          >
+            <span>今日总流量：{{ formatCompactBytes(todayTrafficSummary.total) }}</span>
+          </button>
         </div>
       </header>
 
@@ -60,6 +70,31 @@
         <router-view />
       </main>
     </section>
+
+    <el-dialog
+      v-model="recentTrafficDialogVisible"
+      :title="recentTrafficDialogTitle"
+      width="560px"
+      class="traffic-history-dialog"
+    >
+      <div class="traffic-history" v-loading="recentTrafficLoading">
+        <div class="traffic-history-total">
+          <span>最近 5 天总流量</span>
+          <strong>{{ formatCompactBytes(recentTrafficTotal) }}</strong>
+        </div>
+        <div class="traffic-history-list">
+          <div v-for="point in recentTrafficPoints" :key="point.date" class="traffic-history-item">
+            <div class="traffic-history-row">
+              <span>{{ formatTrafficDate(point.date) }}</span>
+              <strong>{{ formatCompactBytes(point.total) }}</strong>
+            </div>
+            <div class="traffic-history-bar">
+              <span :style="{ width: trafficBarWidth(point.total) }"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -67,12 +102,21 @@
 import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../stores/auth';
-import { panelApi } from '../api';
+import { useGroupRuleStore } from '../stores/groupRule';
+import { useRuleStore } from '../stores/rule';
+import { panelApi, statsApi } from '../api';
+import { formatBytes } from '../utils/format';
 
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
+const ruleStore = useRuleStore();
+const groupRuleStore = useGroupRuleStore();
 const panelVersion = ref('unknown');
+const recentTrafficDialogVisible = ref(false);
+const recentTrafficLoading = ref(false);
+const recentTrafficPoints = ref([]);
+const recentTrafficTotal = ref(0);
 
 const activePath = computed(() => {
   if (route.path.startsWith('/rules/') && route.path.endsWith('/stats')) {
@@ -82,6 +126,97 @@ const activePath = computed(() => {
 });
 
 const currentTitle = computed(() => route.meta?.title || 'OnlyTun');
+
+const todayTrafficSummary = computed(() => {
+  if (route.path === '/rules') {
+    return { total: summarizeSingleRulesTotal() };
+  }
+  if (route.path === '/group-rules') {
+    return { total: summarizeGroupRulesTotal() };
+  }
+  return null;
+});
+
+const recentTrafficDialogTitle = computed(() =>
+  route.path === '/group-rules' ? '设备组规则最近五天流量' : '转发规则最近五天流量',
+);
+
+const recentTrafficMax = computed(() =>
+  recentTrafficPoints.value.reduce((max, point) => Math.max(max, Number(point.total || 0)), 0),
+);
+
+function summarizeSingleRulesTotal() {
+  return ruleStore.rules.reduce(
+    (total, rule) => {
+      const up = Number(ruleStore.dayUpTotals[rule.id] || rule.today_bytes_up || 0);
+      const down = Number(ruleStore.dayDownTotals[rule.id] || rule.today_bytes_down || 0);
+      const fallbackTotal = Number(ruleStore.dayTotals[rule.id] || rule.today_bytes || 0);
+      return total + (up + down || fallbackTotal);
+    },
+    0,
+  );
+}
+
+function summarizeGroupRulesTotal() {
+  return groupRuleStore.rules.reduce(
+    (total, rule) => {
+      const up = Number(rule.today_bytes_up || 0);
+      const down = Number(rule.today_bytes_down || 0);
+      const fallbackTotal = Number(rule.today_bytes || 0);
+      return total + (up + down || fallbackTotal);
+    },
+    0,
+  );
+}
+
+function formatCompactBytes(value) {
+  return formatBytes(value).replace(/\s+/g, '');
+}
+
+function currentTrafficScope() {
+  if (route.path === '/rules') {
+    return 'rules';
+  }
+  if (route.path === '/group-rules') {
+    return 'group_rules';
+  }
+  return '';
+}
+
+async function openRecentTrafficDialog() {
+  const scope = currentTrafficScope();
+  if (!scope) return;
+
+  recentTrafficDialogVisible.value = true;
+  recentTrafficLoading.value = true;
+  try {
+    const { data } = await statsApi.getRecentTraffic(scope, 5);
+    recentTrafficPoints.value = data.points || [];
+    recentTrafficTotal.value = data.total || 0;
+  } finally {
+    recentTrafficLoading.value = false;
+  }
+}
+
+function formatTrafficDate(input) {
+  const date = new Date(input);
+  if (Number.isNaN(date.getTime())) {
+    return '-';
+  }
+  return date.toLocaleDateString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+  });
+}
+
+function trafficBarWidth(value) {
+  const total = Number(value || 0);
+  const max = recentTrafficMax.value;
+  if (max <= 0 || total <= 0) {
+    return '0%';
+  }
+  return `${Math.max((total / max) * 100, 6)}%`;
+}
 
 function handleLogout() {
   authStore.logout();
@@ -226,6 +361,109 @@ onMounted(async () => {
   font-size: 32px;
   color: #132238;
   letter-spacing: -0.04em;
+}
+
+.topbar-title-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.today-traffic-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 30px;
+  padding: 6px 13px;
+  border: 1px solid rgba(64, 158, 255, 0.14);
+  border-radius: 999px;
+  background:
+    linear-gradient(135deg, rgba(238, 247, 255, 0.96), rgba(247, 251, 255, 0.88)),
+    rgba(255, 255, 255, 0.8);
+  color: #52657f;
+  font-size: 12px;
+  line-height: 1;
+  font-family: inherit;
+  cursor: pointer;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.86),
+    0 10px 26px rgba(64, 158, 255, 0.08);
+  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease, color 0.18s ease;
+}
+
+.today-traffic-summary:hover {
+  color: #1f6feb;
+  border-color: rgba(64, 158, 255, 0.28);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 12px 30px rgba(64, 158, 255, 0.13);
+  transform: translateY(-1px);
+}
+
+.traffic-history {
+  min-height: 252px;
+}
+
+.traffic-history-total {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px;
+  margin-bottom: 14px;
+  border: 1px solid rgba(64, 158, 255, 0.14);
+  border-radius: 18px;
+  background: linear-gradient(135deg, rgba(238, 247, 255, 0.96), rgba(250, 253, 255, 0.96));
+  color: #64748b;
+}
+
+.traffic-history-total strong {
+  color: #132238;
+  font-size: 22px;
+  letter-spacing: -0.03em;
+}
+
+.traffic-history-list {
+  display: grid;
+  gap: 10px;
+}
+
+.traffic-history-item {
+  padding: 12px 14px;
+  border: 1px solid rgba(113, 135, 166, 0.12);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.traffic-history-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 9px;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.traffic-history-row strong {
+  color: #1d2b42;
+}
+
+.traffic-history-bar {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e9eff7;
+}
+
+.traffic-history-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #7cc4ff, #3f8cff);
+  transition: width 0.28s ease;
 }
 
 .content-area {

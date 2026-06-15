@@ -1,0 +1,1 @@
+function o(t=0){const r=["B","KB","MB","GB","TB"];let e=Number(t)||0,n=0;for(;e>=1024&&n<r.length-1;)e/=1024,n+=1;const i=e>=100||n===0?0:2;return`${e.toFixed(i)} ${r[n]}`}function s(t){return t==="egress"?"出口机":"入口机"}function u(t){return t==="both"?"TCP+UDP":String(t||"").toUpperCase()}export{o as f,u as p,s as r};

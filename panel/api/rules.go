@@ -36,7 +36,7 @@ func (h *Handler) ListRules(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	todayTotalsMap, err := h.Stats.TodayTotalsForRules(ids, time.Now())
+	todayTotalsMap, err := h.Stats.TodayTrafficForRules(ids, time.Now())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -46,11 +46,13 @@ func (h *Handler) ListRules(c *gin.Context) {
 	for _, rule := range rules {
 		total := totalsMap[rule.ID]
 		items = append(items, service.RuleView{
-			ForwardRule:   rule,
-			RealtimeStat:  statsMap[rule.ID],
-			TotalBytes:    total,
-			TodayBytes:    todayTotalsMap[rule.ID],
-			LimitExceeded: rule.TrafficLimitBytes > 0 && total >= rule.TrafficLimitBytes,
+			ForwardRule:    rule,
+			RealtimeStat:   statsMap[rule.ID],
+			TotalBytes:     total,
+			TodayBytes:     todayTotalsMap[rule.ID].BytesUp + todayTotalsMap[rule.ID].BytesDown,
+			TodayBytesUp:   todayTotalsMap[rule.ID].BytesUp,
+			TodayBytesDown: todayTotalsMap[rule.ID].BytesDown,
+			LimitExceeded:  rule.TrafficLimitBytes > 0 && total >= rule.TrafficLimitBytes,
 		})
 	}
 

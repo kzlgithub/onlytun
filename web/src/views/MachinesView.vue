@@ -48,20 +48,24 @@
           title="入口机"
           role="ingress"
           :machines="filteredIngressMachines"
+          :sort-by="ingressSort"
           @copy-ip="copyIP"
           @rename="handleRename"
           @update-script="handleUpdateScript"
           @delete="handleDelete"
+          @sort-change="ingressSort = $event"
         />
 
         <MachineGroup
           title="出口机"
           role="egress"
           :machines="filteredEgressMachines"
+          :sort-by="egressSort"
           @copy-ip="copyIP"
           @rename="handleRename"
           @update-script="handleUpdateScript"
           @delete="handleDelete"
+          @sort-change="egressSort = $event"
         />
       </div>
     </el-card>
@@ -111,6 +115,8 @@ const initialLoading = ref(false);
 const manualRefreshing = ref(false);
 const refreshing = ref(false);
 const nowTick = ref(Date.now());
+const ingressSort = ref('traffic');
+const egressSort = ref('traffic');
 const installDialog = reactive({
   visible: false,
   role: 'ingress',
@@ -153,8 +159,18 @@ const filteredMachines = computed(() => {
   });
 });
 
-const filteredIngressMachines = computed(() => filteredMachines.value.filter((item) => item.role === 'ingress'));
-const filteredEgressMachines = computed(() => filteredMachines.value.filter((item) => item.role === 'egress'));
+const filteredIngressMachines = computed(() =>
+  sortMachines(
+    filteredMachines.value.filter((item) => item.role === 'ingress'),
+    ingressSort.value,
+  ),
+);
+const filteredEgressMachines = computed(() =>
+  sortMachines(
+    filteredMachines.value.filter((item) => item.role === 'egress'),
+    egressSort.value,
+  ),
+);
 const currentInstallCommand = computed(() => machineStore.installCommands[installDialog.role] || '');
 const installDialogTitle = computed(() => {
   if (installDialog.role === 'ix') {
@@ -407,8 +423,9 @@ const MachineGroup = defineComponent({
     title: { type: String, required: true },
     role: { type: String, required: true },
     machines: { type: Array, required: true },
+    sortBy: { type: String, required: true },
   },
-  emits: ['copy-ip', 'rename', 'update-script', 'delete'],
+  emits: ['copy-ip', 'rename', 'update-script', 'delete', 'sort-change'],
   setup(props, { emit }) {
     const renderMachine = (machine) => {
       const updating = isUpdating(machine.last_update_task);
@@ -489,10 +506,6 @@ const MachineGroup = defineComponent({
                 ]),
 
                 h('div', { class: 'speed-panel' }, [
-                  h('div', { class: 'speed-title' }, [
-                    h('strong', '实时网速'),
-                    h('span', '1 MB/s 满格'),
-                  ]),
                   speedRow('上传', traffic.upSpeed, traffic.upSpeedPercent, 'upload'),
                   speedRow('下载', traffic.downSpeed, traffic.downSpeedPercent, 'download'),
                 ]),
@@ -548,8 +561,14 @@ const MachineGroup = defineComponent({
     return () =>
       h('section', { class: 'machine-group' }, [
         h('div', { class: 'group-title-row' }, [
-          h('h3', { class: 'group-title' }, props.title),
-          h('span', { class: 'group-count' }, `${props.machines.filter((item) => item.online).length}/${props.machines.length} 在线`),
+          h('div', { class: 'group-heading' }, [
+            h('h3', { class: 'group-title' }, props.title),
+            h('span', { class: 'group-count' }, `${props.machines.filter((item) => item.online).length}/${props.machines.length} 在线`),
+          ]),
+          h('div', { class: 'group-sort', role: 'group', 'aria-label': `${props.title}排序方式` }, [
+            sortButton('name', '名字排序', props.sortBy, emit),
+            sortButton('traffic', '总流量排序', props.sortBy, emit),
+          ]),
         ]),
         props.machines.length
           ? h('div', { class: 'machine-card-grid' }, props.machines.map(renderMachine))
@@ -595,6 +614,18 @@ function updateStep(label, active) {
   ]);
 }
 
+function sortButton(value, label, activeValue, emit) {
+  return h(
+    'button',
+    {
+      type: 'button',
+      class: ['sort-chip', activeValue === value ? 'active' : ''],
+      onClick: () => emit('sort-change', value),
+    },
+    label,
+  );
+}
+
 function isUpdating(task) {
   return task?.status === 'pending' || task?.status === 'running';
 }
@@ -629,6 +660,30 @@ function updateTaskLabel(task) {
 function optionalPercent(value) {
   const numeric = Number(value);
   return value !== undefined && value !== null && Number.isFinite(numeric) ? numeric : Number.NaN;
+}
+
+function sortMachines(list, sortBy) {
+  return [...list].sort((a, b) => {
+    if (sortBy === 'name') {
+      return machineName(b).localeCompare(machineName(a), 'zh-Hans-CN', { numeric: true, sensitivity: 'base' });
+    }
+    const trafficDiff = machineTotalTraffic(b) - machineTotalTraffic(a);
+    if (trafficDiff !== 0) {
+      return trafficDiff;
+    }
+    return machineName(b).localeCompare(machineName(a), 'zh-Hans-CN', { numeric: true, sensitivity: 'base' });
+  });
+}
+
+function machineName(machine) {
+  return String(machine.name || machine.ip || machine.id || '');
+}
+
+function machineTotalTraffic(machine) {
+  if (machine.demo_net) {
+    return Number(machine.demo_net.up || 0) + Number(machine.demo_net.down || 0);
+  }
+  return Number(machine.net_bytes_up || 0) + Number(machine.net_bytes_down || 0);
 }
 
 function trimPercent(value) {
@@ -1098,9 +1153,16 @@ function buildDemoMachines() {
 .machines-page .group-title-row {
   display: flex;
   align-items: center;
-  justify-content: flex-start;
-  gap: 10px;
+  justify-content: space-between;
+  gap: 12px;
   margin-bottom: 14px;
+}
+
+.machines-page .group-heading {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
 }
 
 .machines-page .group-title {
@@ -1113,6 +1175,45 @@ function buildDemoMachines() {
   color: #72829d;
   font-size: 13px;
   transform: translateY(1px);
+}
+
+.machines-page .group-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  padding: 4px;
+  border: 1px solid rgba(84, 112, 150, 0.14);
+  border-radius: 999px;
+  background: rgba(247, 251, 255, 0.82);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+.machines-page .sort-chip {
+  height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  color: #64748b;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 28px;
+  cursor: pointer;
+  transition: color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
+}
+
+.machines-page .sort-chip:hover {
+  color: #1f6feb;
+  background: rgba(64, 158, 255, 0.08);
+}
+
+.machines-page .sort-chip.active {
+  color: #1f6feb;
+  background: #ffffff;
+  box-shadow:
+    0 8px 18px rgba(31, 111, 235, 0.1),
+    inset 0 0 0 1px rgba(64, 158, 255, 0.14);
 }
 
 .machines-page .machine-card-grid {
@@ -1317,14 +1418,14 @@ function buildDemoMachines() {
   margin-bottom: 10px;
   color: #697991;
   font-size: 12px;
-  font-weight: 750;
+  font-weight: 500;
 }
 
 .machines-page .metric-pill strong {
   display: block;
   color: #13243b;
   font-size: 20px;
-  font-weight: 930;
+  font-weight: 500;
   letter-spacing: -0.045em;
   line-height: 1.05;
   white-space: nowrap;
@@ -1336,25 +1437,6 @@ function buildDemoMachines() {
   border: 1px solid rgba(112, 142, 180, 0.12);
   border-radius: 20px;
   background: rgba(248, 251, 255, 0.76);
-}
-
-.machines-page .speed-title {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 12px;
-}
-
-.machines-page .speed-title strong {
-  color: #213750;
-  font-size: 13px;
-  font-weight: 850;
-}
-
-.machines-page .speed-title span {
-  color: #8795a8;
-  font-size: 11px;
-  font-weight: 700;
 }
 
 .machines-page .speed-row {
@@ -1380,7 +1462,7 @@ function buildDemoMachines() {
 .machines-page .speed-label {
   color: #687991;
   font-size: 12px;
-  font-weight: 750;
+  font-weight: 500;
 }
 
 .machines-page .speed-track {
@@ -1404,7 +1486,7 @@ function buildDemoMachines() {
   justify-self: end;
   color: var(--speed-accent);
   font-size: 12px;
-  font-weight: 900;
+  font-weight: 500;
   white-space: nowrap;
 }
 
@@ -1424,14 +1506,14 @@ function buildDemoMachines() {
   margin-bottom: 5px;
   color: #78889e;
   font-size: 11px;
-  font-weight: 750;
+  font-weight: 500;
 }
 
 .machines-page .resource-metric strong {
   display: block;
   color: #1a2d47;
   font-size: 18px;
-  font-weight: 900;
+  font-weight: 500;
   letter-spacing: -0.035em;
   line-height: 1;
 }
@@ -1670,6 +1752,16 @@ function buildDemoMachines() {
 
   .machines-page .search-input {
     margin-right: 0;
+  }
+
+  .machines-page .group-title-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .machines-page .group-sort {
+    width: 100%;
+    justify-content: flex-start;
   }
 
   .machines-page .machine-card-grid {

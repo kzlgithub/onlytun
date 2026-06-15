@@ -85,6 +85,8 @@ type DeviceGroupRuleView struct {
 	RealtimeStat        RuleRealtimeStat `json:"realtime_stat"`
 	TotalBytes          int64            `json:"total_bytes"`
 	TodayBytes          int64            `json:"today_bytes"`
+	TodayBytesUp        int64            `json:"today_bytes_up"`
+	TodayBytesDown      int64            `json:"today_bytes_down"`
 	LimitExceeded       bool             `json:"limit_exceeded"`
 }
 
@@ -373,7 +375,7 @@ func (s *GroupService) GetDeviceGroupRule(id string) (*paneldb.DeviceGroupRule, 
 	return &rule, nil
 }
 
-func (s *GroupService) BuildDeviceGroupRuleViews(rules []paneldb.DeviceGroupRule, stats map[string]RuleRealtimeStat, totals map[string]int64, todayTotals map[string]int64) ([]DeviceGroupRuleView, error) {
+func (s *GroupService) BuildDeviceGroupRuleViews(rules []paneldb.DeviceGroupRule, stats map[string]RuleRealtimeStat, totals map[string]int64, todayTotals map[string]TrafficTotals) ([]DeviceGroupRuleView, error) {
 	views := make([]DeviceGroupRuleView, 0, len(rules))
 	for _, rule := range rules {
 		view, err := s.buildDeviceGroupRuleView(rule, stats[rule.ID], totals[rule.ID], todayTotals[rule.ID])
@@ -385,7 +387,7 @@ func (s *GroupService) BuildDeviceGroupRuleViews(rules []paneldb.DeviceGroupRule
 	return views, nil
 }
 
-func (s *GroupService) buildDeviceGroupRuleView(rule paneldb.DeviceGroupRule, stat RuleRealtimeStat, total, todayTotal int64) (DeviceGroupRuleView, error) {
+func (s *GroupService) buildDeviceGroupRuleView(rule paneldb.DeviceGroupRule, stat RuleRealtimeStat, total int64, todayTotal TrafficTotals) (DeviceGroupRuleView, error) {
 	var ingressGroup, egressGroup paneldb.MachineGroup
 	_ = s.db.Take(&ingressGroup, "id = ?", rule.IngressGroupID).Error
 	_ = s.db.Take(&egressGroup, "id = ?", rule.EgressGroupID).Error
@@ -425,7 +427,9 @@ func (s *GroupService) buildDeviceGroupRuleView(rule paneldb.DeviceGroupRule, st
 		OnlineEgressCount:   int64(len(onlineEgress)),
 		RealtimeStat:        stat,
 		TotalBytes:          total,
-		TodayBytes:          todayTotal,
+		TodayBytes:          todayTotal.BytesUp + todayTotal.BytesDown,
+		TodayBytesUp:        todayTotal.BytesUp,
+		TodayBytesDown:      todayTotal.BytesDown,
 		LimitExceeded:       limitExceeded,
 	}, nil
 }

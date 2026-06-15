@@ -34,6 +34,8 @@ export const useRuleStore = defineStore('rules', {
     rules: [],
     loading: false,
     dayTotals: {},
+    dayUpTotals: {},
+    dayDownTotals: {},
     rateMap: {},
     snapshots: {},
     statsCache: {},
@@ -92,10 +94,18 @@ export const useRuleStore = defineStore('rules', {
     },
     updateTodayTotalsFromRules(rules) {
       const nextTotals = {};
+      const nextUpTotals = {};
+      const nextDownTotals = {};
       for (const rule of rules) {
-        nextTotals[rule.id] = rule.today_bytes ?? this.dayTotals[rule.id] ?? 0;
+        const up = rule.today_bytes_up ?? this.dayUpTotals[rule.id] ?? 0;
+        const down = rule.today_bytes_down ?? this.dayDownTotals[rule.id] ?? 0;
+        nextUpTotals[rule.id] = up;
+        nextDownTotals[rule.id] = down;
+        nextTotals[rule.id] = rule.today_bytes ?? up + down;
       }
       this.dayTotals = nextTotals;
+      this.dayUpTotals = nextUpTotals;
+      this.dayDownTotals = nextDownTotals;
     },
     mergeRules(incomingRules) {
       const currentById = new Map(this.rules.map((item) => [item.id, item]));
@@ -151,6 +161,8 @@ export const useRuleStore = defineStore('rules', {
     async deleteRule(id) {
       await ruleApi.remove(id);
       delete this.dayTotals[id];
+      delete this.dayUpTotals[id];
+      delete this.dayDownTotals[id];
       delete this.rateMap[id];
       delete this.snapshots[id];
       this.rules = this.rules.filter((item) => item.id !== id);
@@ -160,6 +172,8 @@ export const useRuleStore = defineStore('rules', {
       await Promise.all(uniqueIds.map((id) => ruleApi.remove(id)));
       uniqueIds.forEach((id) => {
         delete this.dayTotals[id];
+        delete this.dayUpTotals[id];
+        delete this.dayDownTotals[id];
         delete this.rateMap[id];
         delete this.snapshots[id];
       });

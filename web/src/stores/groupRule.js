@@ -119,6 +119,12 @@ export const useGroupRuleStore = defineStore('groupRules', {
       const deleted = new Set(uniqueIds);
       this.rules = this.rules.filter((item) => !deleted.has(item.id));
     },
+    async batchUpdateEgressGroup(ids, egressGroupId) {
+      const uniqueIds = [...new Set(ids.filter(Boolean))];
+      const { data } = await groupRuleApi.batchUpdateEgressGroup(uniqueIds, egressGroupId);
+      await this.fetchRules();
+      return data;
+    },
     async toggleRule(id) {
       const { data } = await groupRuleApi.toggle(id);
       const index = this.rules.findIndex((item) => item.id === id);

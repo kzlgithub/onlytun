@@ -99,6 +99,7 @@ func main() {
 	admin.PUT("/machine-groups/:id/members", handler.SetMachineGroupMembers)
 	admin.GET("/group-rules", handler.ListDeviceGroupRules)
 	admin.POST("/group-rules", handler.CreateDeviceGroupRule)
+	admin.POST("/group-rules/batch/egress-group", handler.BatchUpdateDeviceGroupRuleEgressGroup)
 	admin.PUT("/group-rules/:id", handler.UpdateDeviceGroupRule)
 	admin.DELETE("/group-rules/:id", handler.DeleteDeviceGroupRule)
 	admin.PATCH("/group-rules/:id/toggle", handler.ToggleDeviceGroupRule)

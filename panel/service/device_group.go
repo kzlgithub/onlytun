@@ -74,6 +74,11 @@ type DeviceGroupRuleInput struct {
 	Remark            string `json:"remark"`
 }
 
+type BatchUpdateDeviceGroupRuleEgressInput struct {
+	RuleIDs       []string `json:"rule_ids"`
+	EgressGroupID string   `json:"egress_group_id"`
+}
+
 type DeviceGroupRuleView struct {
 	paneldb.DeviceGroupRule
 	IngressGroupName    string           `json:"ingress_group_name"`
@@ -343,6 +348,40 @@ func (s *GroupService) DeleteDeviceGroupRule(id string) error {
 		return ErrGroupRuleNotFound
 	}
 	return nil
+}
+
+func (s *GroupService) BatchUpdateDeviceGroupRuleEgressGroup(input BatchUpdateDeviceGroupRuleEgressInput) (int64, error) {
+	ruleIDs := uniqueStrings(input.RuleIDs)
+	if len(ruleIDs) == 0 {
+		return 0, ErrGroupRuleNotFound
+	}
+	if err := s.ensureGroupRole(input.EgressGroupID, "egress"); err != nil {
+		return 0, err
+	}
+
+	var updated int64
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		var count int64
+		if err := tx.Model(&paneldb.DeviceGroupRule{}).Where("id IN ?", ruleIDs).Count(&count).Error; err != nil {
+			return err
+		}
+		if count != int64(len(ruleIDs)) {
+			return ErrGroupRuleNotFound
+		}
+
+		result := tx.Model(&paneldb.DeviceGroupRule{}).
+			Where("id IN ?", ruleIDs).
+			Updates(map[string]any{
+				"egress_group_id": input.EgressGroupID,
+				"updated_at":      time.Now(),
+			})
+		if result.Error != nil {
+			return result.Error
+		}
+		updated = result.RowsAffected
+		return nil
+	})
+	return updated, err
 }
 
 func (s *GroupService) ToggleDeviceGroupRule(id string) (*paneldb.DeviceGroupRule, error) {

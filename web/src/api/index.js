@@ -145,6 +145,12 @@ export const groupRuleApi = {
   toggle(id) {
     return api.patch(`/api/group-rules/${id}/toggle`);
   },
+  batchUpdateEgressGroup(ruleIds, egressGroupId) {
+    return api.post('/api/group-rules/batch/egress-group', {
+      rule_ids: ruleIds,
+      egress_group_id: egressGroupId,
+    });
+  },
 };
 
 export const statsApi = {

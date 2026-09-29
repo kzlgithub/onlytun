@@ -194,6 +194,23 @@ func (h *Handler) DeleteDeviceGroupRule(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
+func (h *Handler) BatchUpdateDeviceGroupRuleEgressGroup(c *gin.Context) {
+	if !h.requireDeviceGroupMode(c) {
+		return
+	}
+	var input service.BatchUpdateDeviceGroupRuleEgressInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		return
+	}
+	updated, err := h.Groups.BatchUpdateDeviceGroupRuleEgressGroup(input)
+	if err != nil {
+		writeGroupError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"updated": updated})
+}
+
 func (h *Handler) ToggleDeviceGroupRule(c *gin.Context) {
 	if !h.requireDeviceGroupMode(c) {
 		return

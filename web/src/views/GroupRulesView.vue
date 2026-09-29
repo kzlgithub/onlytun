@@ -43,6 +43,14 @@
             <el-button round :disabled="selectedRules.length === 0" @click="openExportDialog">导出选中</el-button>
             <el-button
               round
+              :disabled="modeDisabled || selectedRules.length === 0"
+              :loading="batchEgressUpdating"
+              @click="openBatchEgressDialog"
+            >
+              修改出口组
+            </el-button>
+            <el-button
+              round
               type="danger"
               plain
               :disabled="modeDisabled || selectedRules.length === 0"
@@ -173,6 +181,22 @@
             </div>
           </template>
         </el-table-column>
+        <el-table-column width="130">
+          <template #header>
+            <button
+              type="button"
+              class="traffic-sort-header"
+              :class="{ active: todayTrafficSort }"
+              @click="cycleTodayTrafficSort"
+            >
+              <span>今日流量</span>
+              <span class="traffic-sort-icon">{{ trafficSortIcon(todayTrafficSort) }}</span>
+            </button>
+          </template>
+          <template #default="{ row }">
+            {{ formatBytes(row.today_bytes || 0) }}
+          </template>
+        </el-table-column>
         <el-table-column label="协议" width="100">
           <template #default="{ row }">
             <el-tag effect="light" round>{{ protocolLabel(row.protocol) }}</el-tag>
@@ -205,22 +229,6 @@
         <el-table-column label="出口在线" width="110">
           <template #default="{ row }">
             {{ row.online_egress_count || 0 }}
-          </template>
-        </el-table-column>
-        <el-table-column width="130">
-          <template #header>
-            <button
-              type="button"
-              class="traffic-sort-header"
-              :class="{ active: todayTrafficSort }"
-              @click="cycleTodayTrafficSort"
-            >
-              <span>今日流量</span>
-              <span class="traffic-sort-icon">{{ trafficSortIcon(todayTrafficSort) }}</span>
-            </button>
-          </template>
-          <template #default="{ row }">
-            {{ formatBytes(row.today_bytes || 0) }}
           </template>
         </el-table-column>
         <el-table-column label="流量上限" width="130">
@@ -383,6 +391,36 @@
       </template>
     </el-dialog>
 
+    <el-dialog v-model="batchEgressDialog.visible" title="批量修改出口组" width="620px" class="batch-dialog">
+      <div class="batch-egress-panel">
+        <div class="batch-egress-count">
+          <span>已选择</span>
+          <strong>{{ selectedRules.length }}</strong>
+          <span>条设备组规则</span>
+        </div>
+        <div class="batch-egress-copy">
+          保存后新连接会使用新的出口组，已有连接按当前热更新策略平滑切换。
+        </div>
+      </div>
+      <el-form label-position="top" class="batch-egress-form">
+        <el-form-item label="目标出口组">
+          <el-select v-model="batchEgressForm.egress_group_id" placeholder="选择新的出口组" filterable>
+            <el-option v-for="group in groupStore.egressGroups" :key="group.id" :label="group.name" :value="group.id" />
+          </el-select>
+        </el-form-item>
+      </el-form>
+      <div class="batch-egress-preview">
+        <span v-for="rule in selectedRules.slice(0, 6)" :key="rule.id">{{ rule.name }}</span>
+        <em v-if="selectedRules.length > 6">等 {{ selectedRules.length }} 条</em>
+      </div>
+      <template #footer>
+        <div class="dialog-footer-actions">
+          <el-button @click="batchEgressDialog.visible = false">取消</el-button>
+          <el-button type="primary" :loading="batchEgressUpdating" @click="submitBatchEgressGroup">确认修改</el-button>
+        </div>
+      </template>
+    </el-dialog>
+
     <el-dialog v-model="ruleDialog.visible" :title="ruleDialog.id ? '编辑设备组规则' : '新增设备组规则'" width="720px">
       <el-form ref="ruleFormRef" :model="ruleForm" :rules="ruleFormRules" label-position="top" class="rule-form">
         <el-form-item label="规则名称" prop="name">
@@ -474,6 +512,7 @@ const memberSelection = ref([]);
 const selectedRules = ref([]);
 const limitGB = ref(0);
 const batchDeleting = ref(false);
+const batchEgressUpdating = ref(false);
 const importing = ref(false);
 const importText = ref('');
 const exportText = ref('');
@@ -484,6 +523,7 @@ const ruleDialog = reactive({ visible: false, id: '' });
 const detailDialog = reactive({ visible: false, rule: null });
 const importDialog = reactive({ visible: false });
 const exportDialog = reactive({ visible: false });
+const batchEgressDialog = reactive({ visible: false });
 
 const groupForm = reactive({ name: '', role: 'ingress', remark: '' });
 const ruleForm = reactive({
@@ -503,6 +543,9 @@ const importDefaults = reactive({
   egress_group_id: '',
   protocol: 'tcp',
   enabled: true,
+});
+const batchEgressForm = reactive({
+  egress_group_id: '',
 });
 
 const modeDisabled = computed(() => !groupStore.modeEnabled);
@@ -716,6 +759,21 @@ function loadDemoData() {
         },
       ],
     },
+    {
+      id: 'demo-egress-2',
+      name: '出口组 日本',
+      role: 'egress',
+      machine_count: 1,
+      members: [
+        {
+          id: 'demo-e-3',
+          name: 'RFC日本出口机',
+          ip: '198.176.52.50',
+          online: true,
+          agent_version: 'v1.7.0',
+        },
+      ],
+    },
   ];
   groupStore.rules = [
     {
@@ -739,13 +797,38 @@ function loadDemoData() {
       today_bytes_down: 7516192768,
       traffic_limit_bytes: 0,
     },
+    {
+      id: 'demo-rule-2',
+      name: 'demo-video-02',
+      ingress_group_id: 'demo-ingress-1',
+      ingress_group_name: '入口组 广州',
+      egress_group_id: 'demo-egress-2',
+      egress_group_name: '出口组 日本',
+      ingress_port: 53329,
+      target_addr: 'example.com',
+      target_port: 443,
+      protocol: 'tcp',
+      enabled: true,
+      effective_machines: 2,
+      ingress_machine_count: 2,
+      conflict_machines: 0,
+      online_egress_count: 1,
+      today_bytes: 8589934592,
+      today_bytes_up: 3221225472,
+      today_bytes_down: 5368709120,
+      traffic_limit_bytes: 0,
+    },
   ];
   machineStore.machines = [...groupStore.groups.flatMap((group) => group.members || [])];
 }
 
 async function manualRefresh() {
   manualRefreshing.value = true;
-  await loadData();
+  try {
+    await loadData();
+  } finally {
+    manualRefreshing.value = false;
+  }
 }
 
 async function toggleMode(enabled) {
@@ -864,6 +947,59 @@ function openExportDialog() {
   }
   exportText.value = selectedRules.value.map(formatRuleLine).join('\n');
   exportDialog.visible = true;
+}
+
+function openBatchEgressDialog() {
+  if (!ensureModeEnabled()) return;
+  if (selectedRules.value.length === 0) {
+    ElMessage.warning('请先选择要修改出口组的设备组规则');
+    return;
+  }
+  const firstDifferentGroup = groupStore.egressGroups.find((group) =>
+    selectedRules.value.some((rule) => rule.egress_group_id !== group.id),
+  );
+  batchEgressForm.egress_group_id = firstDifferentGroup?.id || groupStore.egressGroups[0]?.id || '';
+  batchEgressDialog.visible = true;
+}
+
+async function submitBatchEgressGroup() {
+  if (!ensureModeEnabled()) return;
+  const ruleIDs = selectedRules.value.map((rule) => rule.id).filter(Boolean);
+  if (ruleIDs.length === 0) {
+    ElMessage.warning('请先选择要修改出口组的设备组规则');
+    return;
+  }
+  if (!batchEgressForm.egress_group_id) {
+    ElMessage.warning('请选择目标出口组');
+    return;
+  }
+  const unchanged = selectedRules.value.every((rule) => rule.egress_group_id === batchEgressForm.egress_group_id);
+  if (unchanged) {
+    ElMessage.info('选中的规则已经全部使用该出口组');
+    return;
+  }
+
+  const targetGroup = findGroupById(batchEgressForm.egress_group_id);
+  await ElMessageBox.confirm(
+    `确定将 ${ruleIDs.length} 条设备组规则切换到「${targetGroup?.name || '目标出口组'}」吗？新连接会立即走新出口组。`,
+    '确认修改出口组',
+    {
+      type: 'warning',
+      confirmButtonText: '确认修改',
+      cancelButtonText: '取消',
+    },
+  );
+
+  batchEgressUpdating.value = true;
+  try {
+    const data = await groupStore.batchUpdateEgressGroup(ruleIDs, batchEgressForm.egress_group_id);
+    batchEgressDialog.visible = false;
+    selectedRules.value = [];
+    ruleTableRef.value?.clearSelection?.();
+    ElMessage.success(`已修改 ${data?.updated || ruleIDs.length} 条设备组规则的出口组`);
+  } finally {
+    batchEgressUpdating.value = false;
+  }
 }
 
 function formatRuleLine(rule) {
@@ -1892,6 +2028,69 @@ onMounted(async () => {
   gap: 12px;
   align-items: center;
   margin-bottom: 14px;
+}
+
+.batch-egress-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+  padding: 16px 18px;
+  border: 1px solid rgba(64, 158, 255, 0.15);
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at 0 0, rgba(64, 158, 255, 0.12), transparent 32%),
+    linear-gradient(135deg, #f7fbff, #eef6ff);
+}
+
+.batch-egress-count {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  color: #5f728c;
+  white-space: nowrap;
+}
+
+.batch-egress-count strong {
+  color: #1f6feb;
+  font-size: 24px;
+  line-height: 1;
+}
+
+.batch-egress-copy {
+  max-width: 360px;
+  color: #6f8198;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.batch-egress-form {
+  margin-bottom: 12px;
+}
+
+.batch-egress-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.batch-egress-preview span,
+.batch-egress-preview em {
+  display: inline-flex;
+  align-items: center;
+  max-width: 190px;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid rgba(113, 135, 166, 0.12);
+  border-radius: 999px;
+  background: #f7faff;
+  color: #60748e;
+  font-size: 12px;
+  font-style: normal;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .dialog-footer-actions {

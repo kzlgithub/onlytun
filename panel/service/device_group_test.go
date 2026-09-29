@@ -222,6 +222,103 @@ func TestCreateDeviceGroupRuleDisablesOverlappingIngressPort(t *testing.T) {
 	}
 }
 
+func TestBatchUpdateDeviceGroupRuleEgressGroup(t *testing.T) {
+	gdb, err := paneldb.OpenDatabase(filepath.Join(t.TempDir(), "panel.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+
+	ingressGroup := paneldb.MachineGroup{ID: "ingress-group", Name: "Ingress Group", Role: "ingress"}
+	oldEgressGroup := paneldb.MachineGroup{ID: "egress-old", Name: "Old Egress", Role: "egress"}
+	newEgressGroup := paneldb.MachineGroup{ID: "egress-new", Name: "New Egress", Role: "egress"}
+	rules := []paneldb.DeviceGroupRule{
+		{ID: "rule-1", Name: "Rule 1", IngressGroupID: ingressGroup.ID, EgressGroupID: oldEgressGroup.ID, IngressPort: 41001, TargetAddr: "example.com", TargetPort: 443, Protocol: "tcp", Enabled: true},
+		{ID: "rule-2", Name: "Rule 2", IngressGroupID: ingressGroup.ID, EgressGroupID: oldEgressGroup.ID, IngressPort: 41002, TargetAddr: "example.org", TargetPort: 443, Protocol: "tcp", Enabled: false},
+		{ID: "rule-3", Name: "Rule 3", IngressGroupID: ingressGroup.ID, EgressGroupID: oldEgressGroup.ID, IngressPort: 41003, TargetAddr: "example.net", TargetPort: 443, Protocol: "tcp", Enabled: true},
+	}
+	for _, record := range []any{&ingressGroup, &oldEgressGroup, &newEgressGroup, &rules[0], &rules[1], &rules[2]} {
+		if err := gdb.Create(record).Error; err != nil {
+			t.Fatalf("create record: %v", err)
+		}
+	}
+
+	updated, err := NewGroupService(gdb, 19999).BatchUpdateDeviceGroupRuleEgressGroup(BatchUpdateDeviceGroupRuleEgressInput{
+		RuleIDs:       []string{"rule-2", "rule-1", "rule-1"},
+		EgressGroupID: newEgressGroup.ID,
+	})
+	if err != nil {
+		t.Fatalf("batch update egress group: %v", err)
+	}
+	if updated != 2 {
+		t.Fatalf("expected 2 updated rules, got %d", updated)
+	}
+
+	for _, tc := range []struct {
+		id     string
+		egress string
+	}{
+		{"rule-1", newEgressGroup.ID},
+		{"rule-2", newEgressGroup.ID},
+		{"rule-3", oldEgressGroup.ID},
+	} {
+		rule, err := NewGroupService(gdb, 19999).GetDeviceGroupRule(tc.id)
+		if err != nil {
+			t.Fatalf("load rule %s: %v", tc.id, err)
+		}
+		if rule.EgressGroupID != tc.egress {
+			t.Fatalf("rule %s expected egress group %s, got %s", tc.id, tc.egress, rule.EgressGroupID)
+		}
+	}
+}
+
+func TestBatchUpdateDeviceGroupRuleEgressGroupRejectsInvalidInput(t *testing.T) {
+	gdb, err := paneldb.OpenDatabase(filepath.Join(t.TempDir(), "panel.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+
+	ingressGroup := paneldb.MachineGroup{ID: "ingress-group", Name: "Ingress Group", Role: "ingress"}
+	egressGroup := paneldb.MachineGroup{ID: "egress-group", Name: "Egress Group", Role: "egress"}
+	rule := paneldb.DeviceGroupRule{
+		ID:             "rule-1",
+		Name:           "Rule 1",
+		IngressGroupID: ingressGroup.ID,
+		EgressGroupID:  egressGroup.ID,
+		IngressPort:    41001,
+		TargetAddr:     "example.com",
+		TargetPort:     443,
+		Protocol:       "tcp",
+		Enabled:        true,
+	}
+	for _, record := range []any{&ingressGroup, &egressGroup, &rule} {
+		if err := gdb.Create(record).Error; err != nil {
+			t.Fatalf("create record: %v", err)
+		}
+	}
+
+	svc := NewGroupService(gdb, 19999)
+	if _, err := svc.BatchUpdateDeviceGroupRuleEgressGroup(BatchUpdateDeviceGroupRuleEgressInput{
+		RuleIDs:       []string{rule.ID},
+		EgressGroupID: ingressGroup.ID,
+	}); !errors.Is(err, ErrInvalidMachine) {
+		t.Fatalf("expected invalid machine for ingress target group, got %v", err)
+	}
+	if _, err := svc.BatchUpdateDeviceGroupRuleEgressGroup(BatchUpdateDeviceGroupRuleEgressInput{
+		RuleIDs:       []string{rule.ID, "missing-rule"},
+		EgressGroupID: egressGroup.ID,
+	}); !errors.Is(err, ErrGroupRuleNotFound) {
+		t.Fatalf("expected missing rule error, got %v", err)
+	}
+
+	saved, err := svc.GetDeviceGroupRule(rule.ID)
+	if err != nil {
+		t.Fatalf("load saved rule: %v", err)
+	}
+	if saved.EgressGroupID != egressGroup.ID {
+		t.Fatalf("invalid batch request changed rule egress group to %s", saved.EgressGroupID)
+	}
+}
+
 func TestDeviceGroupModeDisabledUsesOnlySingleRules(t *testing.T) {
 	gdb, err := paneldb.OpenDatabase(filepath.Join(t.TempDir(), "panel.db"))
 	if err != nil {
